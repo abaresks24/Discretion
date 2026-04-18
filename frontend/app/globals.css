@@ -1,0 +1,178 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* -------------------------------------------------------------------------
+ * Base layer — minimal resets. Tailwind's own Preflight already handles most.
+ * ------------------------------------------------------------------------- */
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body {
+    background-color: #0f0f0f;
+    color: #fafaf9;
+    font-feature-settings: "ss01", "cv01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Let long-form text use tabular numerals everywhere numbers appear. */
+  .font-mono,
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background: #c8b273;
+    color: #0f0f0f;
+  }
+}
+
+/* -------------------------------------------------------------------------
+ * Type scale — names follow the brief. Use these utilities, not ad-hoc sizes.
+ * ------------------------------------------------------------------------- */
+@layer components {
+  .type-display-xl {
+    @apply font-serif font-light;
+    font-size: 88px;
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+  .type-display-lg {
+    @apply font-serif font-light;
+    font-size: 64px;
+    line-height: 1.05;
+    letter-spacing: -0.015em;
+  }
+  .type-display-md {
+    @apply font-serif italic;
+    font-size: 40px;
+    line-height: 1.1;
+    letter-spacing: -0.01em;
+  }
+  .type-heading-lg {
+    @apply font-serif italic;
+    font-size: 28px;
+    line-height: 1.2;
+  }
+  .type-heading-md {
+    @apply font-serif italic;
+    font-size: 20px;
+    line-height: 1.3;
+  }
+  .type-label {
+    @apply font-sans font-medium uppercase text-ink-secondary;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+  }
+  .type-body {
+    @apply font-sans;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  .type-body-serif {
+    @apply font-serif italic;
+    font-size: 16px;
+    line-height: 1.7;
+  }
+  .type-caption {
+    @apply font-sans text-ink-tertiary;
+    font-size: 11px;
+    line-height: 1.4;
+    letter-spacing: 0.04em;
+  }
+  .type-mono-xl {
+    @apply font-mono;
+    font-size: 56px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+  }
+  .type-mono-lg {
+    @apply font-mono;
+    font-size: 32px;
+    font-weight: 500;
+  }
+  .type-mono-md {
+    @apply font-mono;
+    font-size: 18px;
+  }
+  .type-mono-sm {
+    @apply font-mono;
+    font-size: 12px;
+  }
+
+  /* Editorial hairline — a single 1px gold line, 60–120px wide, centered. */
+  .hairline-gold {
+    height: 1px;
+    background-color: #c8b273;
+  }
+
+  /* Text link with the "Underline Grow" hover treatment (brief, animation D). */
+  .link {
+    position: relative;
+    display: inline-block;
+  }
+  .link::after {
+    content: "";
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    width: 0;
+    height: 1px;
+    background: #c8b273;
+    transition: width 200ms ease-out;
+  }
+  .link:hover::after {
+    width: 100%;
+  }
+
+  /* Counsel letter — background + gold left-edge "seal" (brief, decorative #5). */
+  .counsel-letter {
+    background-color: #262626;
+    border-left: 1px solid #c8b273;
+    padding: 24px;
+  }
+
+  /* Drop cap for long-form text (brief, decorative #1). */
+  .drop-cap::first-letter {
+    @apply font-serif;
+    float: left;
+    font-size: 3.4em;
+    line-height: 0.9;
+    padding-right: 0.08em;
+    padding-top: 0.08em;
+    color: #c8b273;
+    font-style: normal;
+    font-weight: 400;
+  }
+
+  /* Bottom-border input — no enclosing box. */
+  .input-underline {
+    @apply w-full bg-transparent outline-none border-0 border-b border-border transition-colors duration-300 ease-out;
+  }
+  .input-underline:focus {
+    @apply border-accent-gold;
+  }
+}
+
+/* -------------------------------------------------------------------------
+ * Landing-only subtle radial gradient. Extremely faint per brief.
+ * ------------------------------------------------------------------------- */
+.landing-bg {
+  background:
+    radial-gradient(circle at 50% 50%, #161616 0%, #0f0f0f 70%);
+}
+
+/* Hide scrollbar for the Counsel thread while keeping it scrollable. */
+.scroll-quiet::-webkit-scrollbar {
+  width: 2px;
+}
+.scroll-quiet::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-quiet::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+}
