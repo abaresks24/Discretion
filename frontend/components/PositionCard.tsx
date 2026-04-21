@@ -38,7 +38,7 @@ export function PositionCard({
         value={
           <DecryptedNumber
             value={collateralAmount}
-            unit="WETH"
+            unit="RLC"
             size="md"
             decimals={4}
           />

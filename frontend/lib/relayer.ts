@@ -22,14 +22,27 @@ export type AnalyzeResponse = {
   };
 };
 
+export type DecryptedAmounts = {
+  collateralRaw?: bigint;
+  debtRaw?: bigint;
+};
+
+function toBody(userAddress: string, decrypted: DecryptedAmounts) {
+  return {
+    userAddress,
+    collateralRaw: decrypted.collateralRaw !== undefined ? decrypted.collateralRaw.toString() : undefined,
+    debtRaw: decrypted.debtRaw !== undefined ? decrypted.debtRaw.toString() : undefined,
+  };
+}
+
 export async function analyzePosition(
   userAddress: string,
-  viewKey?: string,
+  decrypted: DecryptedAmounts = {},
 ): Promise<AnalyzeResponse> {
   const res = await fetch(`${env.RELAYER_URL}/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userAddress, viewKey }),
+    body: JSON.stringify(toBody(userAddress, decrypted)),
   });
   if (!res.ok) throw new Error(`analyze failed: ${res.status}`);
   return (await res.json()) as AnalyzeResponse;
@@ -37,23 +50,24 @@ export async function analyzePosition(
 
 export type ChatHistoryItem = { role: "user" | "assistant"; content: string };
 
-/**
- * Streams the /chat endpoint as a stream of token chunks + a final `actions` list.
- * Uses fetch + manual parsing of the SSE framing so we can also pass POST body.
- */
 export async function* streamChat(opts: {
   userAddress: string;
-  viewKey?: string;
   message: string;
   history: ChatHistoryItem[];
+  decrypted?: DecryptedAmounts;
   signal?: AbortSignal;
 }): AsyncGenerator<
   { kind: "token"; chunk: string } | { kind: "done"; actions: SuggestedAction[] }
 > {
+  const body = {
+    ...toBody(opts.userAddress, opts.decrypted ?? {}),
+    message: opts.message,
+    history: opts.history,
+  };
   const res = await fetch(`${env.RELAYER_URL}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(opts),
+    body: JSON.stringify(body),
     signal: opts.signal,
   });
   if (!res.ok || !res.body) throw new Error(`chat failed: ${res.status}`);
@@ -67,7 +81,6 @@ export async function* streamChat(opts: {
     if (done) break;
     buf += decoder.decode(value, { stream: true });
 
-    // SSE frames are terminated by a blank line.
     let idx: number;
     while ((idx = buf.indexOf("\n\n")) !== -1) {
       const frame = buf.slice(0, idx);
@@ -100,31 +113,27 @@ function parseSseFrame(frame: string): { event: string; data: any } | null {
   }
 }
 
-export type AlertEvent = {
-  kind: "alert";
+export type RefreshEvent = {
+  kind: "refresh";
   at: string;
-  zone: number;
-  narrative: string;
-  actions: SuggestedAction[];
+  reason: string;
 };
 
 /**
- * Subscribes to the server-sent alert stream for a user. Returns an unsubscribe
- * function. Uses EventSource — the relayer sets `viewKey` as a query param.
+ * Subscribes to server-sent refresh notices. The relayer emits these whenever
+ * an on-chain balance event fires for the user — the frontend should then
+ * re-decrypt handles via the Nox gateway and re-run `/analyze`.
  */
 export function subscribeAlerts(
   userAddress: string,
-  viewKey: string | undefined,
-  onAlert: (e: AlertEvent) => void,
+  onRefresh: (e: RefreshEvent) => void,
   onError?: (e: unknown) => void,
 ): () => void {
   const url = new URL(`${env.RELAYER_URL}/alerts/${userAddress}`);
-  if (viewKey) url.searchParams.set("viewKey", viewKey);
-
   const es = new EventSource(url.toString());
-  es.addEventListener("alert", (ev) => {
+  es.addEventListener("refresh", (ev) => {
     try {
-      onAlert(JSON.parse((ev as MessageEvent).data));
+      onRefresh(JSON.parse((ev as MessageEvent).data));
     } catch (err) {
       onError?.(err);
     }

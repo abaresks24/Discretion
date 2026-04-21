@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type Address } from "viem";
 import {
-  type AlertEvent,
   type ChatHistoryItem,
   type SuggestedAction,
   analyzePosition,
@@ -17,14 +16,18 @@ export type CounselMessage = {
   role: "counsel" | "user";
   text: string;
   actions?: SuggestedAction[];
-  at: string; // HH:MM
+  at: string;
 };
 
 /**
- * Owns the Counsel conversation: SSE alerts in, chat messages in/out.
+ * Owns the Counsel conversation: refresh notices in, chat messages in/out.
  * State is session-only — never persisted.
+ *
+ * NOTE: `_viewKey` is kept in the signature for forward-compat — it used to
+ * authenticate /analyze. The relayer no longer takes it (decryption is the
+ * frontend's responsibility through the Nox gateway), so the value is ignored.
  */
-export function useCounsel(user: Address | undefined, viewKey: string | null) {
+export function useCounsel(user: Address | undefined, _viewKey: string | null) {
   const [messages, setMessages] = useState<CounselMessage[]>([]);
   const [pulse, setPulse] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -46,39 +49,43 @@ export function useCounsel(user: Address | undefined, viewKey: string | null) {
     return () => window.clearTimeout(t);
   }, []);
 
-  // Initial analysis — fires once after wallet + view key are available.
+  const analyze = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await analyzePosition(user);
+      pushMessage({ role: "counsel", text: res.narrative, actions: res.actions });
+      triggerPulse();
+    } catch {
+      // Counsel will greet once the relayer is reachable.
+    }
+  }, [user, pushMessage, triggerPulse]);
+
+  // Initial analysis.
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
-    analyzePosition(user, viewKey ?? undefined)
-      .then((res) => {
-        if (cancelled) return;
-        pushMessage({ role: "counsel", text: res.narrative, actions: res.actions });
-      })
-      .catch(() => {
-        /* silently swallow — Counsel will greet once the relayer is reachable */
-      });
+    (async () => {
+      if (!cancelled) await analyze();
+    })();
     return () => {
       cancelled = true;
     };
-  }, [user, viewKey, pushMessage]);
+  }, [user, analyze]);
 
-  // SSE alerts — one pulse + one Counsel message per alert.
+  // Refresh notices from the relayer's event watcher.
   useEffect(() => {
     if (!user) return;
     const unsub = subscribeAlerts(
       user,
-      viewKey ?? undefined,
-      (ev: AlertEvent) => {
-        pushMessage({ role: "counsel", text: ev.narrative, actions: ev.actions });
-        triggerPulse();
+      () => {
+        void analyze();
       },
       () => {
-        // Connection errors are silent — SSE auto-retries via EventSource.
+        // Connection errors auto-retried by EventSource.
       },
     );
     return unsub;
-  }, [user, viewKey, pushMessage, triggerPulse]);
+  }, [user, analyze]);
 
   const send = useCallback(
     async (message: string) => {
@@ -97,7 +104,6 @@ export function useCounsel(user: Address | undefined, viewKey: string | null) {
         let accumulated = "";
         for await (const evt of streamChat({
           userAddress: user,
-          viewKey: viewKey ?? undefined,
           message,
           history,
         })) {
@@ -116,7 +122,7 @@ export function useCounsel(user: Address | undefined, viewKey: string | null) {
         setIsStreaming(false);
       }
     },
-    [user, viewKey, messages, pushMessage],
+    [user, messages, pushMessage],
   );
 
   return { messages, pulse, isStreaming, send };

@@ -46,7 +46,7 @@ export default function Sandbox() {
       <Section title="DecryptedNumber">
         <div className="flex flex-col gap-6">
           <DecryptedNumber value={2015.4} unit="USDC" size="xl" />
-          <DecryptedNumber value={1.2345} unit="WETH" size="lg" decimals={4} />
+          <DecryptedNumber value={1.2345} unit="RLC" size="lg" decimals={4} />
           <DecryptedNumber value={68.44} unit="%" size="md" />
           <DecryptedNumber value={12} size="sm" />
         </div>
@@ -105,7 +105,7 @@ export default function Sandbox() {
           <CounselMessage at="09:42">
             Your position has entered the warning band. ETH has slipped to
             $2 500 and LTV stands at 80.0%. Consider settling 500 USDC or
-            reinforcing with 0.2 WETH to return to the safe band.
+            reinforcing with 0.2 RLC to return to the safe band.
           </CounselMessage>
           <SuggestionCard
             action={{

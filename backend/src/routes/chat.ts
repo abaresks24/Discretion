@@ -1,17 +1,21 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { getAddress, type Address } from "viem";
-import { readPositionSnapshot, decryptHandle } from "../services/onchain.js";
+import { readPositionSnapshot, computeZone } from "../services/onchain.js";
 import {
   buildChatPrompt,
   extractSuggestedActions,
   streamChainGpt,
   type PositionContext,
 } from "../services/chaingpt.js";
-import { sessionStore } from "../services/sessionStore.js";
 
 const LTV_MAX_BPS = 7500;
 const LIQUIDATION_THRESHOLD_BPS = 8500;
+
+const bigintString = z
+  .string()
+  .regex(/^\d+$/, "must be a non-negative integer")
+  .transform((s) => BigInt(s));
 
 const historySchema = z.array(
   z.object({
@@ -22,9 +26,10 @@ const historySchema = z.array(
 
 const bodySchema = z.object({
   userAddress: z.string().refine((v) => /^0x[a-fA-F0-9]{40}$/.test(v)),
-  viewKey: z.string().optional(),
   message: z.string().min(1).max(2000),
   history: historySchema.default([]),
+  collateralRaw: bigintString.optional(),
+  debtRaw: bigintString.optional(),
 });
 
 export const chatRoutes: FastifyPluginAsync = async (app) => {
@@ -35,8 +40,6 @@ export const chatRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const user = getAddress(parsed.data.userAddress) as Address;
-    const viewKey = parsed.data.viewKey ?? sessionStore.getViewKey(user);
-    if (parsed.data.viewKey) sessionStore.setViewKey(user, parsed.data.viewKey);
 
     const snap = await readPositionSnapshot(user);
     const ctx: PositionContext = {
@@ -44,22 +47,24 @@ export const chatRoutes: FastifyPluginAsync = async (app) => {
       collateralAmount: null,
       debtAmount: null,
       ltvBps: null,
-      zone: snap.zone,
+      zone: 0,
       collateralPriceUsd: Number(snap.collateralPriceUsd8) / 1e8,
       debtPriceUsd: Number(snap.debtPriceUsd8) / 1e8,
       ltvMaxBps: LTV_MAX_BPS,
       liquidationThresholdBps: LIQUIDATION_THRESHOLD_BPS,
     };
 
-    if (viewKey) {
-      const [collat, debt, ltv] = await Promise.all([
-        decryptHandle(snap.collateralHandle, viewKey),
-        decryptHandle(snap.debtHandle, viewKey),
-        decryptHandle(snap.ltvBpsHandle, viewKey),
-      ]);
-      ctx.collateralAmount = String(collat);
-      ctx.debtAmount = String(debt);
-      ctx.ltvBps = Number(ltv);
+    if (parsed.data.collateralRaw !== undefined && parsed.data.debtRaw !== undefined) {
+      const { zone, ltvBps } = computeZone(
+        parsed.data.collateralRaw,
+        parsed.data.debtRaw,
+        snap.collateralPriceUsd8,
+        snap.debtPriceUsd8,
+      );
+      ctx.collateralAmount = String(parsed.data.collateralRaw);
+      ctx.debtAmount = String(parsed.data.debtRaw);
+      ctx.ltvBps = ltvBps;
+      ctx.zone = zone;
     }
 
     const prompt = buildChatPrompt(ctx, parsed.data.history, parsed.data.message);

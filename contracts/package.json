@@ -1,0 +1,12 @@
+{
+  "name": "discretion-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Solidity dependencies for ConfidentialLendingVault — installed via npm so Foundry remappings can point into node_modules.",
+  "dependencies": {
+    "@iexec-nox/nox-confidential-contracts": "0.1.0",
+    "@iexec-nox/nox-protocol-contracts": "0.2.2",
+    "@openzeppelin/contracts": "5.6.1",
+    "encrypted-types": "0.0.4"
+  }
+}

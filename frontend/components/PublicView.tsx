@@ -25,7 +25,7 @@ export function PublicView() {
       <div className="grid grid-cols-[416px_416px_464px] gap-8 opacity-60">
         <Card label="POSITION">
           <VeiledRow label="LOAN-TO-VALUE" />
-          <VeiledRow label="COLLATERAL" unit="WETH" />
+          <VeiledRow label="COLLATERAL" unit="RLC" />
           <VeiledRow label="DEBT" unit="USDC" />
         </Card>
 

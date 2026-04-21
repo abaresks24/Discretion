@@ -1,5 +1,5 @@
 import type { Address } from "viem";
-import { readPositionSnapshot, decryptHandle } from "./onchain.js";
+import { readPositionSnapshot, computeZone } from "./onchain.js";
 import {
   askChainGpt,
   buildAnalysisPrompt,
@@ -17,9 +17,19 @@ export type Analysis = {
   context: PositionContext;
 };
 
+/**
+ * Pre-decrypted amounts the frontend passes after reading its view through the
+ * Nox gateway. All values in the underlying token's native units (6 decimals
+ * for cRLC and cUSDC).
+ */
+export type DecryptedInputs = {
+  collateralRaw?: bigint;
+  debtRaw?: bigint;
+};
+
 export async function analyzePosition(
   user: Address,
-  viewKey: string | undefined,
+  decrypted: DecryptedInputs,
   sdkUniqueId: string,
 ): Promise<Analysis> {
   const snap = await readPositionSnapshot(user);
@@ -29,22 +39,24 @@ export async function analyzePosition(
     collateralAmount: null,
     debtAmount: null,
     ltvBps: null,
-    zone: snap.zone,
+    zone: 0,
     collateralPriceUsd: Number(snap.collateralPriceUsd8) / 1e8,
     debtPriceUsd: Number(snap.debtPriceUsd8) / 1e8,
     ltvMaxBps: LTV_MAX_BPS,
     liquidationThresholdBps: LIQUIDATION_THRESHOLD_BPS,
   };
 
-  if (viewKey) {
-    const [collat, debt, ltv] = await Promise.all([
-      decryptHandle(snap.collateralHandle, viewKey),
-      decryptHandle(snap.debtHandle, viewKey),
-      decryptHandle(snap.ltvBpsHandle, viewKey),
-    ]);
-    context.collateralAmount = String(collat);
-    context.debtAmount = String(debt);
-    context.ltvBps = Number(ltv);
+  if (decrypted.collateralRaw !== undefined && decrypted.debtRaw !== undefined) {
+    const { zone, ltvBps } = computeZone(
+      decrypted.collateralRaw,
+      decrypted.debtRaw,
+      snap.collateralPriceUsd8,
+      snap.debtPriceUsd8,
+    );
+    context.collateralAmount = String(decrypted.collateralRaw);
+    context.debtAmount = String(decrypted.debtRaw);
+    context.ltvBps = ltvBps;
+    context.zone = zone;
   }
 
   const prompt = buildAnalysisPrompt(context);

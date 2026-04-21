@@ -3,51 +3,50 @@ import type { Address } from "viem";
 import { parseAbiItem } from "viem";
 import { publicClient } from "./onchain.js";
 import { sessionStore } from "./sessionStore.js";
-import { analyzePosition } from "./analyzer.js";
 import { config } from "../config.js";
 
-const ZONE_CROSSED = parseAbiItem(
-  "event HealthFactorThresholdCrossed(address indexed user, uint8 newZone)",
-);
-
 /**
- * Subscribes to zone-crossing events on the vault. For any event where we
- * have an active SSE subscriber for the user, we kick off a ChainGPT
- * analysis and publish the result. Users without subscribers are ignored —
- * we don't want to burn ChainGPT credits on positions nobody is watching.
+ * The vault no longer emits an encrypted-aware HealthFactorThresholdCrossed event
+ * (moved off-chain — see ConfidentialLendingVault.sol header). The relayer instead
+ * subscribes to the four balance-changing events and asks the frontend to refresh
+ * its decrypted view on each one. Zone + LTV are computed in the frontend and
+ * posted back through /analyze.
  */
+
+const BALANCE_EVENTS = [
+  parseAbiItem("event CollateralDeposited(address indexed user)"),
+  parseAbiItem("event CollateralWithdrawn(address indexed user)"),
+  parseAbiItem("event Borrowed(address indexed user)"),
+  parseAbiItem("event Repaid(address indexed user)"),
+];
+
 export function startEventWatcher(logger: FastifyBaseLogger): () => void {
   logger.info({ vault: config.VAULT_ADDRESS }, "Event watcher starting");
 
-  const unwatch = publicClient.watchEvent({
-    address: config.VAULT_ADDRESS,
-    event: ZONE_CROSSED,
-    onLogs: async (logs) => {
-      for (const log of logs) {
-        const user = log.args.user as Address | undefined;
-        const newZone = log.args.newZone;
-        if (!user || newZone === undefined) continue;
-        if (!sessionStore.hasSubscribers(user)) continue;
+  const unsubscribers = BALANCE_EVENTS.map((event) =>
+    publicClient.watchEvent({
+      address: config.VAULT_ADDRESS,
+      event,
+      onLogs: (logs) => {
+        for (const log of logs) {
+          const user = (log as unknown as { args?: { user?: Address } }).args?.user;
+          if (!user) continue;
+          if (!sessionStore.hasSubscribers(user)) continue;
 
-        logger.info({ user, newZone }, "Zone crossing — triggering analysis");
-        try {
-          const viewKey = sessionStore.getViewKey(user);
-          const analysis = await analyzePosition(user, viewKey, `alert-${user}-${Date.now()}`);
+          logger.info(
+            { user, eventName: event.name },
+            "Balance event — asking frontend to refresh",
+          );
           sessionStore.publish(user, {
-            kind: "alert",
+            kind: "refresh",
             at: new Date().toISOString(),
-            zone: Number(newZone),
-            ...analysis,
+            reason: event.name,
           });
-        } catch (err) {
-          logger.error({ err, user }, "Analysis failed for zone crossing");
         }
-      }
-    },
-    onError: (err) => {
-      logger.error({ err }, "Event watcher error");
-    },
-  });
+      },
+      onError: (err) => logger.error({ err }, `Event watcher error (${event.name})`),
+    }),
+  );
 
-  return () => unwatch();
+  return () => unsubscribers.forEach((u) => u());
 }

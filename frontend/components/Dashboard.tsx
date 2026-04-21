@@ -1,45 +1,83 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useAccount, useWriteContract } from "wagmi";
-import { parseUnits, toHex } from "viem";
+import { parseUnits } from "viem";
 import { PositionCard } from "./PositionCard";
 import { AllocatePanel } from "./AllocatePanel";
 import { CounselPanel } from "./CounselPanel";
-import { usePosition, placeholderDecrypt } from "@/hooks/usePosition";
+import { usePosition } from "@/hooks/usePosition";
 import { useCounsel } from "@/hooks/useCounsel";
-import { useViewKey } from "@/context/ViewKeyContext";
-import { vaultAbi } from "@/lib/abi/vault";
+import { vaultAbi, erc7984Abi } from "@/lib/abi/vault";
 import { env } from "@/lib/env";
+import { encryptAmount, decryptHandle } from "@/lib/noxSdk";
 import type { SuggestedAction } from "@/lib/relayer";
+
+const TOKEN_DECIMALS = 6; // ERC-7984 spec recommendation; cRLC / cUSDC both follow.
+const OPERATOR_TTL_SECS = 60 * 60; // 1h operator grant when depositing / repaying.
 
 export function Dashboard() {
   const { address } = useAccount();
-  const { viewKey } = useViewKey();
-  const { collateralHandle, debtHandle, ltvHandle, zone, refetch } =
-    usePosition(address);
-  const counsel = useCounsel(address, viewKey);
+  const { collateralHandle, debtHandle, refetch } = usePosition(address);
+  const counsel = useCounsel(address, null);
   const { writeContractAsync, isPending } = useWriteContract();
 
-  // FIXME(nox): replace placeholder decrypt with a relayer call — see usePosition.
-  const collateralRaw = placeholderDecrypt(collateralHandle);
-  const debtRaw = placeholderDecrypt(debtHandle);
-  const ltvBps = Number(placeholderDecrypt(ltvHandle));
+  const [collateralRaw, setCollateralRaw] = useState<bigint>(0n);
+  const [debtRaw, setDebtRaw] = useState<bigint>(0n);
 
-  // Placeholder decimal config mirrors the vault deploy default (8/6).
-  const collateralAmount = Number(collateralRaw) / 1e8;
-  const debtAmount = Number(debtRaw) / 1e6;
-  const collateralUsd = collateralAmount * 3000;
-  const ltvPct = Number.isFinite(ltvBps) ? ltvBps / 100 : 0;
+  // Decrypt handles on every change. Until the Nox SDK is wired these resolve
+  // to 0n (see lib/noxSdk.ts), so the PositionCard shows a placeholder until
+  // the gateway is plumbed in.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [c, d] = await Promise.all([
+        decryptHandle(collateralHandle),
+        decryptHandle(debtHandle),
+      ]);
+      if (!cancelled) {
+        setCollateralRaw(c);
+        setDebtRaw(d);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [collateralHandle, debtHandle]);
+
+  const collateralAmount = Number(collateralRaw) / 10 ** TOKEN_DECIMALS;
+  const debtAmount = Number(debtRaw) / 10 ** TOKEN_DECIMALS;
+  const collateralUsd = collateralAmount * 1.5; // placeholder until oracle read is added
+  // Off-chain advisory LTV — relayer computes the canonical value; this mirrors it
+  // for immediate UI feedback so actions feel responsive.
+  const ltvPct =
+    debtAmount > 0 && collateralUsd > 0
+      ? Math.min((debtAmount / collateralUsd) * 100, 999)
+      : 0;
+  const zone = ltvPct >= 85 ? 3 : ltvPct >= 75 ? 2 : ltvPct >= 60 ? 1 : 0;
 
   async function handleAllocate(
     verb: "Deposit" | "Withdraw" | "Borrow" | "Settle",
     amount: string,
   ) {
-    const raw = parseUnits(amount, verb === "Deposit" || verb === "Withdraw" ? 8 : 6);
-    // FIXME(nox): swap to encrypted-input encoding once Nox input proofs are wired.
-    const encoded = toHex(raw, { size: 32 });
+    if (!address) return;
+    const raw = parseUnits(amount, TOKEN_DECIMALS);
+    const { handle, proof } = await encryptAmount(raw, address);
 
-    const functionName =
+    // Deposits and settlements pull from the user's wallet → the vault must be
+    // an operator on the relevant cToken first. One-time per TTL.
+    if (verb === "Deposit" || verb === "Settle") {
+      const cToken = verb === "Deposit" ? env.COLLATERAL_TOKEN : env.DEBT_TOKEN;
+      const until = Math.floor(Date.now() / 1000) + OPERATOR_TTL_SECS;
+      await writeContractAsync({
+        address: cToken,
+        abi: erc7984Abi,
+        functionName: "setOperator",
+        args: [env.VAULT_ADDRESS, until],
+      });
+    }
+
+    const fn =
       verb === "Deposit"
         ? "depositCollateral"
         : verb === "Withdraw"
@@ -51,8 +89,8 @@ export function Dashboard() {
     await writeContractAsync({
       address: env.VAULT_ADDRESS,
       abi: vaultAbi,
-      functionName,
-      args: [encoded],
+      functionName: fn,
+      args: [handle, proof],
     });
     await refetch();
   }

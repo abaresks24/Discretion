@@ -69,7 +69,7 @@ export function AllocatePanel({
               )}
             />
             <span className="font-serif italic text-ink-secondary text-lg">
-              {verb === "Deposit" || verb === "Withdraw" ? "WETH" : "USDC"}
+              {verb === "Deposit" || verb === "Withdraw" ? "RLC" : "USDC"}
             </span>
           </div>
           <div className="pt-4 flex items-baseline gap-3 type-caption">

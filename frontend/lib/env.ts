@@ -19,8 +19,8 @@ function requireString(key: string, fallback?: string): string {
 export const env = {
   VAULT_ADDRESS: requireAddress("NEXT_PUBLIC_VAULT_ADDRESS"),
   ORACLE_ADDRESS: requireAddress("NEXT_PUBLIC_ORACLE_ADDRESS"),
-  USDC_CONFIDENTIAL: requireAddress("NEXT_PUBLIC_USDC_CONFIDENTIAL_ADDRESS"),
-  WETH_CONFIDENTIAL: requireAddress("NEXT_PUBLIC_WETH_CONFIDENTIAL_ADDRESS"),
+  COLLATERAL_TOKEN: requireAddress("NEXT_PUBLIC_COLLATERAL_TOKEN"),
+  DEBT_TOKEN: requireAddress("NEXT_PUBLIC_DEBT_TOKEN"),
   COLLATERAL_ASSET: requireAddress("NEXT_PUBLIC_COLLATERAL_ASSET"),
   DEBT_ASSET: requireAddress("NEXT_PUBLIC_DEBT_ASSET"),
   RELAYER_URL: requireString("NEXT_PUBLIC_RELAYER_URL", "http://localhost:8787"),

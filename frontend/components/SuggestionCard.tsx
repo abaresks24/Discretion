@@ -13,8 +13,8 @@ const VERB_OF: Record<SuggestedAction["type"], string> = {
 function describe(a: SuggestedAction): { title: string; unit: string; amount: string } {
   if (a.type === "repay") return { title: "Settle", amount: a.amount_debt, unit: "USDC" };
   if (a.type === "add_collateral")
-    return { title: "Reinforce", amount: a.amount_collateral, unit: "WETH" };
-  return { title: "Withdraw", amount: a.amount_collateral, unit: "WETH" };
+    return { title: "Reinforce", amount: a.amount_collateral, unit: "RLC" };
+  return { title: "Withdraw", amount: a.amount_collateral, unit: "RLC" };
 }
 
 /**
