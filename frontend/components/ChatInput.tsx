@@ -3,6 +3,10 @@
 import { useState } from "react";
 import { cn } from "@/lib/cn";
 
+/**
+ * Shell-style prompt with a trailing blinking block cursor. Enter submits,
+ * Shift+Enter newlines (textarea under the hood, 1 visible row by default).
+ */
 export function ChatInput({
   onSend,
   disabled,
@@ -20,8 +24,10 @@ export function ChatInput({
   };
 
   return (
-    <div className="pt-6 border-t border-border">
-      <textarea
+    <div className="pt-3 border-t border-terminal-border flex items-center gap-2 font-mono">
+      <span className="text-terminal-text terminal-glow">$</span>
+      <input
+        type="text"
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
@@ -30,16 +36,20 @@ export function ChatInput({
             submit();
           }
         }}
-        rows={2}
-        placeholder="Ask Counsel…"
+        placeholder="ask counsel…"
+        disabled={disabled}
         className={cn(
-          "w-full bg-transparent resize-none outline-none",
-          "font-serif italic text-[15px] leading-relaxed text-ink-primary",
-          "placeholder:text-ink-tertiary placeholder:italic",
-          "border-0 border-b border-border focus:border-accent-gold",
-          "transition-colors duration-300 ease-out pb-2",
+          "flex-1 bg-transparent outline-none border-0",
+          "font-mono text-sm text-terminal-text caret-terminal-text",
+          "placeholder:text-terminal-fade",
+          "disabled:opacity-50",
         )}
       />
+      {!disabled && !value && (
+        <span aria-hidden className="text-terminal-text animate-blink">
+          █
+        </span>
+      )}
     </div>
   );
 }

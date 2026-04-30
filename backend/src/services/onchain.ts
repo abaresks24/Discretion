@@ -11,12 +11,21 @@ import { oracleAbi } from "../abi/oracle.js";
 
 export const publicClient: PublicClient = createPublicClient({
   chain: arbitrumSepolia,
-  transport: http(config.ARBITRUM_SEPOLIA_RPC),
+  transport: http(config.ARBITRUM_SEPOLIA_RPC, {
+    // Retry 429s with exponential backoff so a brief rate-limit burst doesn't
+    // tear down the watchEvent subscription.
+    retryCount: 5,
+    retryDelay: 1_000,
+  }),
+  // Slow event polling to ~12s. Defaults to 4s which crushes public RPCs
+  // when we have ~9 watchEvent subscriptions in parallel.
+  pollingInterval: 12_000,
 });
 
-// ERC-7984 recommends 6 decimals and Nox's cRLC / cUSDC both honour that.
-// Hardcoded here — no runtime read needed, matches the ERC-7984 spec § "decimals".
-export const COLLATERAL_DECIMALS = 6;
+// Hardcoded from on-chain probe of the pre-deployed Nox tokens:
+//   - cRLC inherits plaintext RLC's 9 decimals
+//   - cUSDC inherits plaintext USDC's 6 decimals
+export const COLLATERAL_DECIMALS = 9;
 export const DEBT_DECIMALS = 6;
 
 /**
@@ -49,7 +58,7 @@ export async function readPositionSnapshot(
       address: config.VAULT_ADDRESS,
       abi: vaultAbi,
       functionName: "getEncryptedCollateral",
-      args: [user],
+      args: [config.COLLATERAL_ASSET, user],
     }),
     publicClient.readContract({
       address: config.VAULT_ADDRESS,

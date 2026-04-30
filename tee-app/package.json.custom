@@ -1,0 +1,10 @@
+{
+  "name": "discretion-mixer-iapp",
+  "version": "0.1.0",
+  "description": "iExec iApp that runs in a TEE enclave, reads the WrapQueue pending entries on Arbitrum Sepolia, and calls processBatch with a sealed operator private key.",
+  "main": "src/app.js",
+  "type": "module",
+  "dependencies": {
+    "ethers": "^6.13.5"
+  }
+}

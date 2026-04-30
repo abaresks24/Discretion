@@ -1,11 +1,11 @@
 "use client";
 
-import { cn } from "@/lib/cn";
 import type { ReactNode } from "react";
 
 /**
- * A Counsel message. Letterhead treatment: `bg-high` background, 1px gold
- * left border, 24px padding, serif italic 16px, line-height 1.7 (brief).
+ * Log-line style messages. Each line carries a timestamp tag, a role
+ * prompt (`counsel>` or `you>`), and the body. No background fills —
+ * the whole Counsel column reads as scroll-back.
  */
 export function CounselMessage({
   at,
@@ -15,24 +15,20 @@ export function CounselMessage({
   children: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-2">
-      <span className="type-caption tracking-[0.18em] uppercase text-ink-tertiary">
-        Counsel · {at}
-      </span>
-      <div className={cn("counsel-letter type-body-serif text-ink-primary")}>
-        {children}
-      </div>
+    <div className="font-mono text-sm leading-relaxed">
+      <span className="text-terminal-fade">[{at}]</span>{" "}
+      <span className="text-terminal-dim">counsel&gt;</span>{" "}
+      <span className="text-terminal-text">{children}</span>
     </div>
   );
 }
 
 export function UserMessage({ at, text }: { at: string; text: string }) {
   return (
-    <div className="flex flex-col gap-2 pl-10">
-      <span className="type-caption tracking-[0.18em] uppercase text-ink-tertiary">
-        You · {at}
-      </span>
-      <p className="type-body text-ink-secondary">{text}</p>
+    <div className="font-mono text-sm leading-relaxed">
+      <span className="text-terminal-fade">[{at}]</span>{" "}
+      <span className="text-terminal-dim">you&gt;</span>{" "}
+      <span className="text-terminal-dim">{text}</span>
     </div>
   );
 }

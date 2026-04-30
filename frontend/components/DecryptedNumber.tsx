@@ -5,13 +5,8 @@ import { formatAmount } from "@/lib/format";
 import { cn } from "@/lib/cn";
 
 /**
- * Canonical way to display a confidential numerical value. Handles:
- *   - formatting with thin-space thousand separators, 2 decimals by default
- *   - the 700ms decrypt scramble on mount / value change
- *   - veiling (`████████`) when global view mode is `public`
- *
- * Numbers render in JetBrains Mono with tabular-nums. Optional unit renders
- * in italic serif, offset by a thin space, per the brief's number aesthetic.
+ * Mono, phosphor-glowing number display. Preserves the 700ms decrypt scramble
+ * from the hook (still on-brand — "the terminal is resolving a ciphertext").
  */
 export function DecryptedNumber({
   value,
@@ -35,21 +30,22 @@ export function DecryptedNumber({
 
   const sizeClass =
     size === "xl"
-      ? "type-mono-xl"
+      ? "text-[40px] leading-none font-semibold"
       : size === "lg"
-        ? "type-mono-lg"
+        ? "text-[26px] leading-none font-semibold"
         : size === "md"
-          ? "type-mono-md"
-          : "type-mono-sm";
+          ? "text-[17px] leading-none"
+          : "text-[12px] leading-none";
 
   return (
-    <span className={cn("inline-flex items-baseline gap-[0.4em] tabular", className)}>
-      <span className={cn(sizeClass, "text-ink-primary")}>{display || formatted}</span>
+    <span className={cn("inline-flex items-baseline gap-2 font-mono tabular-nums", className)}>
+      <span className={cn(sizeClass, "text-terminal-text terminal-glow")}>
+        {display || formatted}
+      </span>
       {unit && (
         <span
           className={cn(
-            "font-serif italic text-ink-secondary",
-            size === "xl" ? "text-xl" : "text-sm",
+            "text-terminal-dim text-xs uppercase tracking-widest",
             unitClassName,
           )}
         >

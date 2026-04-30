@@ -1,45 +1,29 @@
-import { type Address, toHex } from "viem";
-
 /**
- * Nox SDK adapter — placeholder.
+ * Thin adapters kept for call-sites that don't live inside a React tree.
+ * The real encrypt/decrypt flow now goes through `hooks/useNoxHandle.ts`,
+ * which wires `@iexec-nox/handle` to the current wagmi wallet client.
  *
- * The real implementation will use `@iexec-nox/nox-handle-sdk` to:
- *   1. produce a signed `externalEuint256` handle for a plaintext amount
- *      (this involves the user's wallet signing an input-proof envelope)
- *   2. resolve a handle back to plaintext through the Nox Gateway (requires
- *      the holder to have an ACL grant on the handle)
- *
- * Until the SDK is installed, `encryptAmount` returns a deterministic-but-
- * unusable pair so the frontend compiles. Calls to the vault will revert
- * on-chain because `validateInputProof` will reject the bogus proof — this is
- * intentional; it keeps the UI buildable while making real transactions
- * impossible until the SDK is wired.
+ * These no-op stubs return values that will cause on-chain calls to fail
+ * gracefully (bogus proof) if ever reached — forcing callers to migrate
+ * to the hook.
  */
 
+import { toHex } from "viem";
+
 export type EncryptedInput = {
-  handle: `0x${string}`; // externalEuint256
-  proof: `0x${string}`;  // bytes (input proof)
+  handle: `0x${string}`;
+  proof: `0x${string}`;
 };
 
-export async function encryptAmount(
-  amount: bigint,
-  _holder: Address,
-): Promise<EncryptedInput> {
-  // TODO(nox-sdk): replace with:
-  //   const { handle, proof } = await noxHandle.input(amount, holder);
+export async function encryptAmount(amount: bigint): Promise<EncryptedInput> {
+  console.warn("[noxSdk] encryptAmount fallback — use useNoxHandle() instead.");
   return {
     handle: toHex(amount, { size: 32 }),
     proof: "0x",
   };
 }
 
-/**
- * Decrypt a handle via the Nox Gateway (Day 3 follow-up).
- * Until wired, returns 0n so the UI renders a placeholder balance.
- */
-export async function decryptHandle(
-  _handle: `0x${string}` | undefined,
-): Promise<bigint> {
-  // TODO(nox-sdk): replace with Gateway-mediated decrypt.
+export async function decryptHandle(): Promise<bigint> {
+  console.warn("[noxSdk] decryptHandle fallback — use useNoxHandle() instead.");
   return 0n;
 }

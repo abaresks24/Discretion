@@ -8,6 +8,7 @@ import {
   streamChainGpt,
   type PositionContext,
 } from "../services/chaingpt.js";
+import { config } from "../config.js";
 
 const LTV_MAX_BPS = 7500;
 const LIQUIDATION_THRESHOLD_BPS = 8500;
@@ -30,6 +31,28 @@ const bodySchema = z.object({
   history: historySchema.default([]),
   collateralRaw: bigintString.optional(),
   debtRaw: bigintString.optional(),
+  // Optional pre-computed aggregate the frontend can send when it has
+  // already decrypted the multi-collat position. Bypasses on-chain reads.
+  snapshot: z
+    .object({
+      totalCollatUsd: z.number().nonnegative(),
+      weightedCollatUsd: z.number().nonnegative(),
+      debtUsd: z.number().nonnegative(),
+      ltvBps: z.number().int().nonnegative(),
+      zone: z.number().int().min(0).max(3),
+      perAsset: z
+        .array(
+          z.object({
+            symbol: z.string(),
+            amount: z.number().nonnegative(),
+            valueUsd: z.number().nonnegative(),
+            ltvBps: z.number().int().nonnegative(),
+          }),
+        )
+        .max(8)
+        .default([]),
+    })
+    .optional(),
 });
 
 export const chatRoutes: FastifyPluginAsync = async (app) => {
@@ -41,39 +64,73 @@ export const chatRoutes: FastifyPluginAsync = async (app) => {
 
     const user = getAddress(parsed.data.userAddress) as Address;
 
-    const snap = await readPositionSnapshot(user);
     const ctx: PositionContext = {
       user,
       collateralAmount: null,
       debtAmount: null,
       ltvBps: null,
       zone: 0,
-      collateralPriceUsd: Number(snap.collateralPriceUsd8) / 1e8,
-      debtPriceUsd: Number(snap.debtPriceUsd8) / 1e8,
+      collateralPriceUsd: 0,
+      debtPriceUsd: 1, // USDC peg — snapshot.debtUsd is already USD
       ltvMaxBps: LTV_MAX_BPS,
       liquidationThresholdBps: LIQUIDATION_THRESHOLD_BPS,
     };
 
-    if (parsed.data.collateralRaw !== undefined && parsed.data.debtRaw !== undefined) {
-      const { zone, ltvBps } = computeZone(
-        parsed.data.collateralRaw,
-        parsed.data.debtRaw,
-        snap.collateralPriceUsd8,
-        snap.debtPriceUsd8,
-      );
-      ctx.collateralAmount = String(parsed.data.collateralRaw);
-      ctx.debtAmount = String(parsed.data.debtRaw);
-      ctx.ltvBps = ltvBps;
-      ctx.zone = zone;
+    // Fast path: when the frontend supplies a decrypted snapshot we skip all
+    // on-chain reads. This avoids hammering the public RPC (which rate-limits
+    // aggressively) and means the prompt is built from already-decrypted data.
+    if (parsed.data.snapshot) {
+      const s = parsed.data.snapshot;
+      const breakdown = s.perAsset.length
+        ? s.perAsset.map((a) => `${a.amount.toFixed(4)} ${a.symbol}`).join(" + ")
+        : "no collateral";
+      ctx.collateralAmount = `${s.totalCollatUsd.toFixed(2)} USD (${breakdown})`;
+      ctx.debtAmount = `${s.debtUsd.toFixed(2)} USD`;
+      ctx.ltvBps = s.ltvBps;
+      ctx.zone = s.zone;
+    } else {
+      // Slow path — only used when frontend hasn't decrypted yet. Read the
+      // snapshot from chain. Tolerant to RPC failures; on error we proceed
+      // with empty context so ChainGPT can still answer general questions.
+      try {
+        const snap = await readPositionSnapshot(user);
+        ctx.collateralPriceUsd = Number(snap.collateralPriceUsd8) / 1e8;
+        ctx.debtPriceUsd = Number(snap.debtPriceUsd8) / 1e8;
+        if (
+          parsed.data.collateralRaw !== undefined &&
+          parsed.data.debtRaw !== undefined
+        ) {
+          const { zone, ltvBps } = computeZone(
+            parsed.data.collateralRaw,
+            parsed.data.debtRaw,
+            snap.collateralPriceUsd8,
+            snap.debtPriceUsd8,
+          );
+          ctx.collateralAmount = String(parsed.data.collateralRaw);
+          ctx.debtAmount = String(parsed.data.debtRaw);
+          ctx.ltvBps = ltvBps;
+          ctx.zone = zone;
+        }
+      } catch (rpcErr) {
+        app.log.warn({ rpcErr, user }, "snapshot RPC failed, continuing without it");
+      }
     }
 
     const prompt = buildChatPrompt(ctx, parsed.data.history, parsed.data.message);
+
+    // Same CORS story as /alerts — we bypass Fastify's hooks with reply.raw,
+    // so the relevant headers must be echoed by hand.
+    const origin = req.headers.origin ?? "";
+    const allowed = config.CORS_ORIGIN.split(",").map((s) => s.trim());
+    const allowOrigin = allowed.includes(origin) ? origin : allowed[0];
 
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
       "X-Accel-Buffering": "no",
+      "Access-Control-Allow-Origin": allowOrigin,
+      "Access-Control-Allow-Credentials": "true",
     });
 
     let accumulated = "";
@@ -85,9 +142,11 @@ export const chatRoutes: FastifyPluginAsync = async (app) => {
       const { actions } = extractSuggestedActions(accumulated);
       reply.raw.write(`event: done\ndata: ${JSON.stringify({ actions })}\n\n`);
     } catch (err) {
-      app.log.error({ err, user }, "chat stream failed");
+      const detail =
+        err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      app.log.error({ err, detail, user }, "chat stream failed");
       reply.raw.write(
-        `event: error\ndata: ${JSON.stringify({ error: "chaingpt_error" })}\n\n`,
+        `event: error\ndata: ${JSON.stringify({ error: "chaingpt_error", detail })}\n\n`,
       );
     } finally {
       reply.raw.end();

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { type Address } from "viem";
 import {
   type ChatHistoryItem,
+  type PositionSnapshot,
   type SuggestedAction,
   analyzePosition,
   streamChat,
@@ -88,7 +89,7 @@ export function useCounsel(user: Address | undefined, _viewKey: string | null) {
   }, [user, analyze]);
 
   const send = useCallback(
-    async (message: string) => {
+    async (message: string, snapshot?: PositionSnapshot) => {
       if (!user || !message.trim()) return;
       pushMessage({ role: "user", text: message });
 
@@ -106,6 +107,7 @@ export function useCounsel(user: Address | undefined, _viewKey: string | null) {
           userAddress: user,
           message,
           history,
+          decrypted: snapshot ? { snapshot } : undefined,
         })) {
           if (evt.kind === "token") {
             accumulated += evt.chunk;

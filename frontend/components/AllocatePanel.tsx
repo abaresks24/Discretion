@@ -5,34 +5,37 @@ import { Card } from "./Card";
 import { cn } from "@/lib/cn";
 import { formatAmount } from "@/lib/format";
 
-type Verb = "Deposit" | "Withdraw" | "Borrow" | "Settle";
+type Verb = "Deposit" | "Withdraw" | "Borrow" | "Settle" | "Supply" | "Unsupply";
 
-const VERB_LABEL: Record<Verb, string> = {
-  Deposit: "CONFIRM DEPOSIT",
-  Withdraw: "CONFIRM WITHDRAWAL",
-  Borrow: "CONFIRM DRAWDOWN",
-  Settle: "CONFIRM SETTLEMENT",
+const VERB_CMD: Record<Verb, string> = {
+  Deposit: "deposit-collateral",
+  Withdraw: "withdraw-collateral",
+  Borrow: "borrow",
+  Settle: "repay",
+  Supply: "supply-liquidity",
+  Unsupply: "withdraw-liquidity",
 };
 
 /**
- * Column 2 on the dashboard. Amount input (no enclosing box, bottom hairline),
- * verb list, dynamic primary CTA. Each verb is a row separated by a hairline;
- * the one matching the current input is highlighted in gold.
+ * Column 2 — the command composer. Supports 6 verbs now: the 4 borrower
+ * operations + 2 LP operations (supply / withdraw-liquidity).
  */
 export function AllocatePanel({
   currentLtvPct,
   onSubmit,
   pending,
+  pendingStep,
+  stepError,
 }: {
   currentLtvPct: number;
   onSubmit: (verb: Verb, amount: string) => void;
   pending?: boolean;
+  pendingStep?: string | null;
+  stepError?: string | null;
 }) {
   const [verb, setVerb] = useState<Verb>("Deposit");
   const [amount, setAmount] = useState("");
 
-  // Estimated LTV — naive pre-flight for display only; the contract will
-  // recompute authoritatively. Matches brief's "Estimated LTV after action".
   const projectedLtv = useMemo(() => {
     const n = Number(amount);
     if (!Number.isFinite(n) || n <= 0) return currentLtvPct;
@@ -45,114 +48,133 @@ export function AllocatePanel({
         return currentLtvPct + 10;
       case "Settle":
         return Math.max(0, currentLtvPct - 15);
+      case "Supply":
+      case "Unsupply":
+        return currentLtvPct; // LP ops don't move borrower LTV
     }
   }, [amount, verb, currentLtvPct]);
 
   const disabled = pending || !amount || Number(amount) <= 0;
+  const unit =
+    verb === "Deposit" || verb === "Withdraw"
+      ? "RLC"
+      : "USDC";
 
   return (
-    <Card label="ALLOCATE">
-      <div className="flex flex-col gap-8">
-        <div>
-          <span className="type-label">AMOUNT</span>
-          <div className="flex items-baseline gap-3 pt-4">
-            <input
-              type="text"
-              inputMode="decimal"
-              value={amount}
-              onChange={(e) => setAmount(sanitize(e.target.value))}
-              placeholder="0.00"
-              className={cn(
-                "input-underline font-mono tabular",
-                "text-[42px] leading-none pb-3",
-                "placeholder:text-ink-tertiary",
-              )}
-            />
-            <span className="font-serif italic text-ink-secondary text-lg">
-              {verb === "Deposit" || verb === "Withdraw" ? "RLC" : "USDC"}
-            </span>
-          </div>
-          <div className="pt-4 flex items-baseline gap-3 type-caption">
-            <span>Estimated LTV after action</span>
-            <span className="font-mono tabular text-ink-secondary">
-              {formatAmount(currentLtvPct, 2)}%
-            </span>
-            <span className="text-ink-tertiary">→</span>
-            <span className="font-mono tabular text-accent-gold">
-              {formatAmount(projectedLtv, 2)}%
-            </span>
-          </div>
-        </div>
-
-        <div className="flex flex-col">
-          {(["Deposit", "Withdraw", "Borrow", "Settle"] as const).map((v, i) => (
-            <VerbRow
+    <Card label="allocate" className="h-full">
+      <div className="flex flex-col gap-2">
+        <span className="text-terminal-dim text-[10px] uppercase tracking-widest">
+          $ select command
+        </span>
+        <div className="grid grid-cols-2 gap-1.5">
+          {(
+            [
+              "Deposit",
+              "Withdraw",
+              "Borrow",
+              "Settle",
+              "Supply",
+              "Unsupply",
+            ] as const
+          ).map((v) => (
+            <button
               key={v}
-              label={v}
-              active={v === verb}
+              type="button"
               onClick={() => setVerb(v)}
-              showTopBorder={i > 0}
-            />
+              className={cn(
+                "px-2 py-1.5 border text-[10px] uppercase tracking-widest transition-colors text-left",
+                verb === v
+                  ? "border-terminal-text text-terminal-text terminal-glow bg-terminal-border/30"
+                  : "border-terminal-border text-terminal-dim hover:text-terminal-text hover:border-terminal-dim",
+              )}
+            >
+              {VERB_CMD[v]}
+            </button>
           ))}
         </div>
+      </div>
 
+      <div className="flex flex-col gap-2">
+        <span className="text-terminal-dim text-[10px] uppercase tracking-widest">
+          $ enter amount
+        </span>
+        <div className="flex items-baseline gap-2 pb-1 border-b border-terminal-border focus-within:border-terminal-text transition-colors">
+          <span className="text-terminal-text terminal-glow">&gt;</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(sanitize(e.target.value))}
+            placeholder="0.00"
+            className={cn(
+              "flex-1 bg-transparent border-0 outline-none",
+              "font-mono tabular-nums text-[24px] leading-none",
+              "text-terminal-text placeholder:text-terminal-fade",
+              "caret-terminal-text terminal-glow",
+            )}
+          />
+          <span className="text-terminal-dim text-sm uppercase tracking-widest">
+            {unit.toLowerCase()}
+          </span>
+        </div>
+      </div>
+
+      {verb === "Deposit" ||
+      verb === "Withdraw" ||
+      verb === "Borrow" ||
+      verb === "Settle" ? (
+        <div className="flex items-baseline gap-2 text-[11px] font-mono">
+          <span className="text-terminal-dim">#</span>
+          <span className="text-terminal-dim">ltv_preview</span>
+          <span className="text-terminal-fade">=</span>
+          <span className="text-terminal-fade tabular-nums">
+            {formatAmount(currentLtvPct, 2)}%
+          </span>
+          <span className="text-terminal-fade">-&gt;</span>
+          <span className="text-terminal-text tabular-nums terminal-glow">
+            {formatAmount(projectedLtv, 2)}%
+          </span>
+        </div>
+      ) : (
+        <div className="text-[11px] font-mono text-terminal-fade">
+          # lp operations don't affect your borrower ltv
+        </div>
+      )}
+
+      <div className="mt-auto flex flex-col gap-2">
+        {(pendingStep || stepError) && (
+          <div className="font-mono text-[11px] leading-snug min-h-[14px]">
+            {stepError ? (
+              <span className="text-terminal-danger">[error] {stepError}</span>
+            ) : (
+              <span className="text-terminal-fade">
+                <span className="text-terminal-dim">&gt;</span> {pendingStep}
+                <span className="animate-blink">█</span>
+              </span>
+            )}
+          </div>
+        )}
         <button
           type="button"
           onClick={() => onSubmit(verb, amount)}
           disabled={disabled}
           className={cn(
-            "w-full h-14 rounded-[4px] type-label tracking-[0.18em]",
-            "transition-colors duration-300 ease-out",
+            "w-full h-10 border font-mono text-[11px] uppercase tracking-[0.2em]",
+            "transition-colors",
             disabled
-              ? "bg-bg-high text-ink-tertiary cursor-not-allowed"
-              : "bg-accent-gold text-bg hover:bg-accent-goldDeep",
-            pending && "border border-accent-gold animate-pulse-soft",
+              ? "border-terminal-border text-terminal-fade cursor-not-allowed"
+              : "border-terminal-text text-terminal-text hover:bg-terminal-text hover:text-black terminal-glow",
+            pending && "animate-pulse",
           )}
         >
-          {pending ? "PROCESSING…" : VERB_LABEL[verb]}
+          {pending ? "$ processing…" : `$ ./${VERB_CMD[verb]} --confirm`}
         </button>
       </div>
     </Card>
   );
 }
 
-function VerbRow({
-  label,
-  active,
-  onClick,
-  showTopBorder,
-}: {
-  label: Verb;
-  active: boolean;
-  onClick: () => void;
-  showTopBorder: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "w-full flex items-center justify-between py-5",
-        "transition-colors duration-300 ease-out text-left",
-        showTopBorder && "border-t border-border-subtle",
-        active ? "text-accent-gold" : "text-ink-primary hover:text-ink-secondary",
-      )}
-    >
-      <span className="font-serif italic text-[22px]">{label}</span>
-      <span
-        className={cn(
-          "text-xl",
-          active ? "text-accent-gold" : "text-ink-tertiary",
-        )}
-      >
-        →
-      </span>
-    </button>
-  );
-}
-
 function sanitize(raw: string) {
-  // Keep digits, one dot, one comma converted to dot.
   const cleaned = raw.replace(/,/g, ".").replace(/[^0-9.]/g, "");
   const parts = cleaned.split(".");
   if (parts.length <= 1) return cleaned;

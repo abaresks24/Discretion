@@ -1,27 +1,27 @@
 import { cn } from "@/lib/cn";
 import { zoneLabel } from "@/lib/format";
 
-const RING: Record<number, string> = {
-  0: "border-zone-safe text-zone-safe",
-  1: "border-zone-warning text-zone-warning",
-  2: "border-zone-warning text-zone-warning",
-  3: "border-zone-danger text-zone-danger",
+const CLS: Record<number, string> = {
+  0: "text-terminal-text",
+  1: "text-terminal-amber",
+  2: "text-terminal-amber",
+  3: "text-terminal-danger",
 };
 
 /**
- * 1px outlined pill displaying the health zone.
- * Zones: 0 safe, 1 warning, 2 danger, 3 liquidatable.
+ * Bracketed zone tag — `[SAFE]`, `[WARNING]`, `[DANGER]`, `[LIQUIDATABLE]`.
+ * Colored by severity, same mono stroke as everything else.
  */
 export function StatusPill({ zone, className }: { zone: number; className?: string }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full border px-3 py-1 type-label tracking-[0.18em]",
-        RING[zone] ?? RING[0],
+        "font-mono text-xs uppercase tracking-[0.2em]",
+        CLS[zone] ?? CLS[0],
         className,
       )}
     >
-      {zoneLabel(zone)}
+      [{zoneLabel(zone)}]
     </span>
   );
 }

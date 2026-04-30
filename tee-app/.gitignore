@@ -1,0 +1,7 @@
+node_modules/
+iapp.config.json.local
+cache/
+out/
+.env
+.env.*
+!.env.example

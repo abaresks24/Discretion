@@ -1,52 +1,92 @@
 "use client";
 
 import Link from "next/link";
-import { Logo } from "./Logo";
+import { useAccount, useReadContract } from "wagmi";
+import type { Address } from "viem";
 import { useViewMode } from "@/context/ViewModeContext";
 import { truncateAddress } from "@/lib/format";
+import { vaultAbi } from "@/lib/abi/vault";
+import { env } from "@/lib/env";
 import { cn } from "@/lib/cn";
 
+/**
+ * Bash-prompt style header. Exposes the public_view link for everyone and a
+ * privileged `audit://` link when the connected wallet is the vault owner.
+ */
 export function PageHeader({ address }: { address?: string }) {
   const { mode } = useViewMode();
+  const { address: connected } = useAccount();
+  const { data: owner } = useReadContract({
+    address: env.VAULT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "owner",
+  });
   const isPublic = mode === "public";
+  const isOwner =
+    !!connected && !!owner &&
+    (connected as Address).toLowerCase() === (owner as Address).toLowerCase();
 
   return (
-    <header className="h-20 flex items-center px-10 border-b border-border">
-      <div className="flex items-center gap-6 flex-1">
-        <Logo size="sm" />
-        <span className="h-4 w-px bg-border" />
-        <span className="type-label">Vault №001</span>
-      </div>
+    <header className="px-6 py-3 border-b border-terminal-border flex items-center gap-3 text-sm font-mono">
+      <span className="text-terminal-dim">user@discretion</span>
+      <span className="text-terminal-fade">:</span>
+      <span className="text-terminal-text terminal-glow">~</span>
+      <span className="text-terminal-dim">$</span>
+      <span className="text-terminal-text terminal-glow">vault://001</span>
 
-      <div className="flex items-center gap-6">
-        <div className="flex items-center gap-3">
-          <span
-            className={cn(
-              "inline-block rounded-full",
-              isPublic ? "bg-zone-danger" : "bg-zone-safe",
-            )}
-            style={{ width: 6, height: 6 }}
-            aria-hidden
-          />
-          <span className="type-label">
-            {isPublic ? "VIEWING AS PUBLIC" : "PRIVACY · ON"}
-          </span>
-        </div>
-        <span className="h-4 w-px bg-border" />
-        <span className="font-mono text-[12px] text-ink-secondary">
-          {address ? truncateAddress(address) : "—"}
+      <span className="flex-1" />
+
+      <span className="flex items-center gap-2">
+        <span
+          aria-hidden
+          className={cn(
+            "inline-block h-2 w-2",
+            isPublic ? "bg-terminal-danger" : "bg-terminal-text",
+          )}
+        />
+        <span
+          className={cn(
+            "uppercase text-xs tracking-widest",
+            isPublic ? "text-terminal-danger" : "text-terminal-dim",
+          )}
+        >
+          {isPublic ? "public_mode" : "private_mode"}
         </span>
-        <span className="h-4 w-px bg-border" />
-        {isPublic ? (
-          <Link href="/app" className="link type-label text-accent-gold">
-            ↩ RETURN TO PRIVATE
+      </span>
+
+      <span className="text-terminal-fade">|</span>
+      <span className="text-terminal-dim">
+        {address ? truncateAddress(address) : "--"}
+      </span>
+      <span className="text-terminal-fade">|</span>
+
+      {isOwner && (
+        <>
+          <Link
+            href="/app/admin"
+            className="text-terminal-amber hover:text-terminal-text underline underline-offset-4 uppercase text-xs tracking-widest"
+          >
+            ./audit
           </Link>
-        ) : (
-          <Link href="/app/public-view" className="link type-label text-ink-secondary">
-            PUBLIC VIEW
-          </Link>
-        )}
-      </div>
+          <span className="text-terminal-fade">|</span>
+        </>
+      )}
+
+      {isPublic ? (
+        <Link
+          href="/app"
+          className="text-terminal-text hover:text-terminal-amber underline underline-offset-4 uppercase text-xs tracking-widest"
+        >
+          ./return_private
+        </Link>
+      ) : (
+        <Link
+          href="/app/public-view"
+          className="text-terminal-dim hover:text-terminal-text underline underline-offset-4 uppercase text-xs tracking-widest"
+        >
+          ./public_view
+        </Link>
+      )}
     </header>
   );
 }

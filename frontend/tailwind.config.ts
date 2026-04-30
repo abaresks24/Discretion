@@ -9,66 +9,63 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Cypherpunk terminal palette (per spec)
         bg: {
-          DEFAULT: "#0F0F0F",
-          elevated: "#1A1A1A",
-          high: "#262626",
-          deepest: "#070707",
+          DEFAULT: "#080a0c",     // near-black with slight blue
+          raised: "#0c0f12",      // cards / elevated
+          hover: "#11151a",
+          deepest: "#04060a",
+        },
+        phos: {
+          DEFAULT: "#00ff9f",     // primary phosphor
+          dim: "#00b370",
+          faint: "#00663f",
+          glow: "rgba(0, 255, 159, 0.08)",
+        },
+        amber: {
+          DEFAULT: "#ffb000",
+          dim: "#b37600",
+        },
+        crit: {
+          DEFAULT: "#ff4444",
+          dim: "#b32c2c",
         },
         ink: {
-          primary: "#FAFAF9",
-          secondary: "#A8A29E",
-          tertiary: "#57534E",
-          veiled: "#404040",
-        },
-        accent: {
-          gold: "#C8B273",
-          goldDeep: "#9A864F",
-          goldGlow: "#E8D49B",
-        },
-        zone: {
-          safe: "#84A07C",
-          warning: "#C9974A",
-          danger: "#A6453B",
-        },
-        border: {
-          DEFAULT: "#2A2A2A",
-          subtle: "#1F1F1F",
-          accent: "#C8B273",
+          primary: "#e8e8e8",
+          secondary: "#888888",
+          tertiary: "#444444",
+          ghost: "#222222",
         },
       },
       fontFamily: {
-        serif: ["var(--font-garamond)", "Georgia", "serif"],
-        sans: ["var(--font-inter)", "system-ui", "sans-serif"],
-        mono: ["var(--font-jbmono)", "monospace"],
-      },
-      letterSpacing: {
-        tightest: "-0.02em",
-        tighter: "-0.015em",
-        tight: "-0.01em",
-        label: "0.18em",
-        wordmark: "0.14em",
+        mono: ["var(--font-jbmono)", "ui-monospace", "monospace"],
       },
       keyframes: {
-        "pulse-soft": {
-          "0%, 100%": { opacity: "0" },
-          "50%": { opacity: "1" },
+        "blink-hard": {
+          "0%, 49%": { opacity: "1" },
+          "50%, 100%": { opacity: "0" },
         },
-        "hairline-fade-in": {
-          "0%": { opacity: "0", transform: "scaleY(0)" },
-          "100%": { opacity: "1", transform: "scaleY(1)" },
+        "crt-flicker": {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.97" },
         },
-        "underline-grow": {
-          "0%": { width: "0%" },
-          "100%": { width: "100%" },
+        "glitch-x": {
+          "0%, 100%": { transform: "translate(0, 0)" },
+          "20%": { transform: "translate(-1px, 0)" },
+          "40%": { transform: "translate(1px, 0)" },
+          "60%": { transform: "translate(-1px, 0)" },
+          "80%": { transform: "translate(0, 1px)" },
+        },
+        "pulse-dot": {
+          "0%, 100%": { opacity: "1", boxShadow: "0 0 6px currentColor" },
+          "50%": { opacity: "0.4", boxShadow: "0 0 2px currentColor" },
         },
       },
       animation: {
-        "pulse-soft": "pulse-soft 1.5s ease-in-out 2",
-        "hairline-fade-in": "hairline-fade-in 1.5s ease-out forwards",
-      },
-      transitionTimingFunction: {
-        "counsel": "cubic-bezier(0.4, 0, 0.2, 1)",
+        "blink-hard": "blink-hard 1s steps(1) infinite",
+        "crt-flicker": "crt-flicker 8s ease-in-out infinite",
+        "glitch-x": "glitch-x 200ms linear",
+        "pulse-dot": "pulse-dot 2s ease-in-out infinite",
       },
     },
   },

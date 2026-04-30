@@ -4,29 +4,39 @@ import { useReadContracts } from "wagmi";
 import { type Address } from "viem";
 import { vaultAbi } from "@/lib/abi/vault";
 import { env } from "@/lib/env";
+import { COLLATERAL_ASSETS } from "@/lib/assets";
 
 /**
- * Reads the encrypted collateral + debt handles from the vault.
+ * Reads every encrypted handle a user carries:
+ *   - per-asset collateral (one handle per registered collateral asset)
+ *   - debt (single — USDC)
+ *   - lender shares (single — USDC supplied as LP)
  *
- * Decryption itself happens via the Nox Gateway SDK on the frontend
- * (`@iexec-nox/nox-handle-sdk`, to be wired in a follow-up). This hook only
- * returns the handles; consuming components call the gateway helper to
- * resolve plaintext and feed it back to the relayer through `/analyze`.
+ * Decryption happens client-side via `@iexec-nox/handle` (hook consumers
+ * call `nox.decrypt(handle)` on each).
  */
 export function usePosition(user: Address | undefined) {
+  const collatReads = COLLATERAL_ASSETS.map((a) => ({
+    address: env.VAULT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "getEncryptedCollateral" as const,
+    args: user ? [a.underlying, user] : undefined,
+  }));
+
   const { data, isLoading, refetch } = useReadContracts({
     contracts: user
       ? [
+          ...collatReads,
           {
             address: env.VAULT_ADDRESS,
             abi: vaultAbi,
-            functionName: "getEncryptedCollateral",
+            functionName: "getEncryptedDebt",
             args: [user],
           },
           {
             address: env.VAULT_ADDRESS,
             abi: vaultAbi,
-            functionName: "getEncryptedDebt",
+            functionName: "getEncryptedLenderShares",
             args: [user],
           },
         ]
@@ -34,11 +44,18 @@ export function usePosition(user: Address | undefined) {
     query: { enabled: !!user, refetchInterval: 15_000 },
   });
 
-  const [collateral, debt] = data ?? [];
+  const n = COLLATERAL_ASSETS.length;
+  const collateralHandles: Record<string, `0x${string}` | undefined> = {};
+  COLLATERAL_ASSETS.forEach((a, i) => {
+    collateralHandles[a.symbol] = data?.[i]?.result as `0x${string}` | undefined;
+  });
+  const debtHandle = data?.[n]?.result as `0x${string}` | undefined;
+  const lenderSharesHandle = data?.[n + 1]?.result as `0x${string}` | undefined;
 
   return {
-    collateralHandle: collateral?.result as `0x${string}` | undefined,
-    debtHandle: debt?.result as `0x${string}` | undefined,
+    collateralHandles,
+    debtHandle,
+    lenderSharesHandle,
     isLoading,
     refetch,
   };

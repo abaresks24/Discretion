@@ -1,0 +1,11 @@
+{
+  "name": "discretion-mixer-iapp",
+  "version": "0.1.0",
+  "description": "iExec iApp — batches pending WrapQueue entries and calls processBatch inside a TDX enclave.",
+  "main": "src/app.js",
+  "type": "module",
+  "dependencies": {
+    "@iexec-nox/handle": "^0.1.0-beta.10",
+    "ethers": "^6.13.5"
+  }
+}

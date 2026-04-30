@@ -4,77 +4,58 @@ import { DecryptedNumber } from "./DecryptedNumber";
 import { StatusPill } from "./StatusPill";
 import { cn } from "@/lib/cn";
 
-const STROKE_BG = "#2A2A2A";
+const BAR_WIDTH = 28;
 
-const ZONE_STROKE: Record<number, string> = {
-  0: "#84A07C",
-  1: "#C9974A",
-  2: "#C9974A",
-  3: "#A6453B",
+const ZONE_COLOR: Record<number, string> = {
+  0: "text-terminal-text",
+  1: "text-terminal-amber",
+  2: "text-terminal-amber",
+  3: "text-terminal-danger",
 };
 
 /**
- * Circular SVG gauge for LTV. Background ring + filled arc colored by zone.
- * Arc fraction = min(value / maxDisplay, 1). The display maps zones safe →
- * danger as the arc grows clockwise from the top.
+ * Compact ASCII progress bar for LTV. Single block: label + number + pill on
+ * a row, bar below, threshold hint underneath.
  */
 export function LtvGauge({
   ltvPercent,
   zone,
-  size = 220,
-  maxDisplay = 100,
   className,
 }: {
   ltvPercent: number;
   zone: number;
-  size?: number;
-  maxDisplay?: number;
   className?: string;
 }) {
-  const stroke = 1.5;
-  const radius = (size - stroke) / 2 - 6;
-  const circ = 2 * Math.PI * radius;
-  const fraction = Math.min(Math.max(ltvPercent / maxDisplay, 0), 1);
-  const dash = circ * fraction;
-  const zoneColor = ZONE_STROKE[zone] ?? ZONE_STROKE[0];
+  const fraction = Math.min(Math.max(ltvPercent / 100, 0), 1);
+  const filled = Math.round(fraction * BAR_WIDTH);
+  const empty = BAR_WIDTH - filled;
+  const colorClass = ZONE_COLOR[zone] ?? ZONE_COLOR[0];
 
   return (
-    <div className={cn("flex flex-col items-center gap-6", className)}>
-      <div className="relative" style={{ width: size, height: size }}>
-        <svg width={size} height={size} className="-rotate-90">
-          {/* background ring */}
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            fill="none"
-            stroke={STROKE_BG}
-            strokeWidth={stroke}
-          />
-          {/* filled arc */}
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            fill="none"
-            stroke={zoneColor}
-            strokeWidth={stroke}
-            strokeLinecap="butt"
-            strokeDasharray={`${dash} ${circ - dash}`}
-            style={{ transition: "stroke-dasharray 800ms cubic-bezier(0.4, 0, 0.2, 1)" }}
-          />
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <DecryptedNumber
-            value={ltvPercent}
-            size="xl"
-            unit="%"
-            unitClassName="text-ink-secondary"
-          />
-          <span className="type-caption mt-2">LOAN-TO-VALUE</span>
-        </div>
+    <div className={cn("flex flex-col gap-2 font-mono", className)}>
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-terminal-dim uppercase text-[10px] tracking-widest">
+          loan_to_value
+        </span>
+        <StatusPill zone={zone} />
       </div>
-      <StatusPill zone={zone} />
+
+      <DecryptedNumber value={ltvPercent} size="xl" unit="%" />
+
+      <div className="text-sm leading-none whitespace-nowrap">
+        <span className="text-terminal-fade">[</span>
+        <span className={cn(colorClass, "terminal-glow tracking-[-0.05em]")}>
+          {"█".repeat(filled)}
+        </span>
+        <span className="text-terminal-fade tracking-[-0.05em]">
+          {"░".repeat(empty)}
+        </span>
+        <span className="text-terminal-fade">]</span>
+      </div>
+
+      <div className="text-[10px] text-terminal-fade">
+        # liq_threshold = 85.00%
+      </div>
     </div>
   );
 }

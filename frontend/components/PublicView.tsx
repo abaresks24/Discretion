@@ -1,69 +1,69 @@
 "use client";
 
 import { Card } from "./Card";
-import { GoldHairline } from "./GoldHairline";
-import { DiscretionMark } from "./Logo";
 import { truncateAddress } from "@/lib/format";
 import { useAccount } from "wagmi";
 
 /**
- * /app/public-view — the "empty" version of the dashboard. The whole point
- * is that anyone looking at this address on-chain sees nothing meaningful.
+ * /app/public-view — the terminal in "external observer" mode. Everything
+ * confidential is redacted to `████████` and Counsel is explicitly blocked.
  */
 export function PublicView() {
   const { address } = useAccount();
 
   return (
-    <div className="px-10 py-10 max-w-[1400px] mx-auto opacity-[0.92]">
-      <div className="flex flex-col items-center gap-6 pb-14">
-        <p className="type-display-md text-ink-primary text-center max-w-xl">
-          This is what the world sees about your position.
-        </p>
-        <GoldHairline width={80} />
+    <div className="px-10 py-10 max-w-[1400px] mx-auto font-mono">
+      <div className="flex flex-col items-start gap-1 pb-10 text-sm">
+        <div className="text-terminal-fade"># whoami — external_observer</div>
+        <div className="text-terminal-danger terminal-glow">
+          [access_denied] confidential payload is end-to-end encrypted.
+        </div>
+        <div className="text-terminal-dim pt-2">
+          # everything a public observer sees about this vault appears below.
+        </div>
       </div>
 
-      <div className="grid grid-cols-[416px_416px_464px] gap-8 opacity-60">
-        <Card label="POSITION">
-          <VeiledRow label="LOAN-TO-VALUE" />
-          <VeiledRow label="COLLATERAL" unit="RLC" />
-          <VeiledRow label="DEBT" unit="USDC" />
+      <div className="grid grid-cols-[416px_416px_464px] gap-8">
+        <Card label="position">
+          <VeiledRow label="loan-to-value" unit="%" />
+          <VeiledRow label="collateral" unit="RLC" />
+          <VeiledRow label="debt" unit="USDC" />
         </Card>
 
-        <Card label="ACTIVITY">
-          <ul className="flex flex-col divide-y divide-border-subtle">
+        <Card label="activity">
+          <ul className="flex flex-col divide-y divide-terminal-border text-sm">
             {sampleActivity.map((row, i) => (
-              <li key={i} className="flex items-center justify-between py-4">
-                <span className="font-mono text-[12px] text-ink-tertiary">
-                  {row.tx}
-                </span>
-                <span className="font-serif italic text-ink-secondary">
-                  {row.verb}
-                </span>
-                <span className="font-mono text-ink-veiled">████████</span>
+              <li key={i} className="flex items-center justify-between py-3 gap-3">
+                <span className="text-terminal-fade">{row.tx}</span>
+                <span className="text-terminal-dim">{row.cmd}</span>
+                <span className="text-terminal-danger">████████</span>
               </li>
             ))}
           </ul>
         </Card>
 
-        <Card label="COUNSEL" className="min-h-[420px] items-center justify-center">
-          <div className="flex-1 flex flex-col items-center justify-center gap-6">
-            <DiscretionMark size={48} className="text-ink-veiled" />
-            <p className="type-body-serif text-ink-secondary text-center max-w-xs">
-              Counsel is available only to the vault holder.
-            </p>
+        <Card label="counsel://root" className="min-h-[320px]">
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center">
+            <div className="text-terminal-danger terminal-glow text-sm">
+              [access_denied]
+            </div>
+            <div className="text-terminal-fade text-sm max-w-xs">
+              # counsel is scoped to the vault holder only.
+            </div>
           </div>
         </Card>
       </div>
 
-      <p className="mt-16 type-body-serif text-ink-secondary text-center">
-        Anyone can see this address used the protocol. No one can see how, when,
-        or with what.
-      </p>
+      <div className="mt-14 text-terminal-dim text-sm text-center">
+        # any observer can see this address used the protocol.
+        <br />
+        # nobody can see how, when, or with what.
+      </div>
 
       {address && (
-        <p className="mt-3 font-mono text-[12px] text-ink-tertiary text-center">
+        <div className="mt-3 text-xs text-terminal-fade text-center">
           {truncateAddress(address)}
-        </p>
+        </div>
       )}
     </div>
   );
@@ -71,21 +71,25 @@ export function PublicView() {
 
 function VeiledRow({ label, unit }: { label: string; unit?: string }) {
   return (
-    <div className="grid grid-cols-[1fr_auto] items-baseline gap-y-1 gap-x-6 py-4 border-b border-border-subtle last:border-0">
-      <span className="type-label">{label}</span>
+    <div className="flex items-baseline justify-between py-3 border-b border-terminal-border last:border-0 text-sm">
+      <span className="text-terminal-dim">{label}</span>
       <div className="flex items-baseline gap-2">
-        <span className="font-mono text-ink-veiled text-lg">████████</span>
-        {unit && <span className="font-serif italic text-ink-veiled">{unit}</span>}
+        <span className="text-terminal-danger">████████</span>
+        {unit && (
+          <span className="text-terminal-fade text-xs uppercase tracking-widest">
+            {unit}
+          </span>
+        )}
       </div>
     </div>
   );
 }
 
 const sampleActivity = [
-  { tx: "0x9b5a…e241", verb: "Deposit collateral" },
-  { tx: "0x3f01…4bba", verb: "Draw" },
-  { tx: "0xa719…c0d3", verb: "Settle" },
-  { tx: "0x24e8…9fa5", verb: "Reinforce" },
-  { tx: "0x11dc…7712", verb: "Draw" },
-  { tx: "0xf502…0abe", verb: "Settle" },
+  { tx: "0x9b5a…e241", cmd: "$ ./deposit" },
+  { tx: "0x3f01…4bba", cmd: "$ ./borrow" },
+  { tx: "0xa719…c0d3", cmd: "$ ./repay" },
+  { tx: "0x24e8…9fa5", cmd: "$ ./deposit" },
+  { tx: "0x11dc…7712", cmd: "$ ./borrow" },
+  { tx: "0xf502…0abe", cmd: "$ ./repay" },
 ];

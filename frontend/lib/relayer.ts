@@ -22,16 +22,33 @@ export type AnalyzeResponse = {
   };
 };
 
+export type PositionSnapshot = {
+  totalCollatUsd: number;
+  weightedCollatUsd: number;
+  debtUsd: number;
+  ltvBps: number;
+  zone: number;
+  perAsset: Array<{
+    symbol: string;
+    amount: number;
+    valueUsd: number;
+    ltvBps: number;
+  }>;
+};
+
 export type DecryptedAmounts = {
   collateralRaw?: bigint;
   debtRaw?: bigint;
+  snapshot?: PositionSnapshot;
 };
 
 function toBody(userAddress: string, decrypted: DecryptedAmounts) {
   return {
     userAddress,
-    collateralRaw: decrypted.collateralRaw !== undefined ? decrypted.collateralRaw.toString() : undefined,
+    collateralRaw:
+      decrypted.collateralRaw !== undefined ? decrypted.collateralRaw.toString() : undefined,
     debtRaw: decrypted.debtRaw !== undefined ? decrypted.debtRaw.toString() : undefined,
+    snapshot: decrypted.snapshot,
   };
 }
 

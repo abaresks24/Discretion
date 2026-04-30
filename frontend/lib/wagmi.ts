@@ -7,7 +7,11 @@ export const wagmiConfig = createConfig({
   chains: [arbitrumSepolia],
   connectors: [injected({ shimDisconnect: true }), metaMask()],
   transports: {
-    [arbitrumSepolia.id]: http(env.RPC_URL),
+    [arbitrumSepolia.id]: http(env.RPC_URL, {
+      timeout: 30_000,
+      retryCount: 2,
+      retryDelay: 500,
+    }),
   },
   ssr: true,
 });

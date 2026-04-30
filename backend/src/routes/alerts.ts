@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { getAddress, type Address } from "viem";
 import { sessionStore } from "../services/sessionStore.js";
+import { config } from "../config.js";
 
 const paramsSchema = z.object({
   userAddress: z.string().refine((v) => /^0x[a-fA-F0-9]{40}$/.test(v)),
@@ -16,11 +17,19 @@ export const alertsRoutes: FastifyPluginAsync = async (app) => {
 
     const user = getAddress(p.data.userAddress) as Address;
 
+    // Mirror the CORS plugin's headers manually — reply.raw.writeHead bypasses
+    // Fastify's response-modification hooks, so we set them explicitly here.
+    const origin = req.headers.origin ?? "";
+    const allowed = config.CORS_ORIGIN.split(",").map((s) => s.trim());
+    const allowOrigin = allowed.includes(origin) ? origin : allowed[0];
+
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
       "X-Accel-Buffering": "no",
+      "Access-Control-Allow-Origin": allowOrigin,
+      "Access-Control-Allow-Credentials": "true",
     });
     reply.raw.write(`event: ready\ndata: ${JSON.stringify({ user })}\n\n`);
 
