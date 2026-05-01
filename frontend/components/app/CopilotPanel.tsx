@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAccount } from "wagmi";
 import { useCounsel } from "@/hooks/useCounsel";
+import { useLiquidationReveal } from "@/hooks/useLiquidationReveal";
 import { useDecryptedPosition } from "@/hooks/useDecryptedPosition";
 import { formatAmount } from "@/lib/format";
 import type { SuggestedAction } from "@/lib/relayer";
@@ -129,7 +130,11 @@ export function CopilotPanel() {
   const ctx = useMemo(() => ROUTE_CTX[pathname] ?? fallbackCtx(pathname), [pathname]);
   const { address } = useAccount();
   const pos = useDecryptedPosition();
-  const { messages, isStreaming, send } = useCounsel(address, null);
+  const { messages, isStreaming, send } = useCounsel(address, null, pos.zone);
+  // Auto-reveal the user's own liquidatable position when LTV crosses the
+  // 85% threshold so /liquidations becomes populated and ChainGPT alerts
+  // via the SSE refresh.
+  useLiquidationReveal();
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 

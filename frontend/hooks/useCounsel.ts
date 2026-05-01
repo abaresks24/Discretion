@@ -27,8 +27,17 @@ export type CounselMessage = {
  * NOTE: `_viewKey` is kept in the signature for forward-compat — it used to
  * authenticate /analyze. The relayer no longer takes it (decryption is the
  * frontend's responsibility through the Nox gateway), so the value is ignored.
+ *
+ * @param zone optional. When supplied, an upward zone transition (e.g.
+ *             a price drop pushing the user from zone 1 → 3) immediately
+ *             re-runs `analyze()` so ChainGPT speaks up before the SSE
+ *             refresh from `revealLiquidatable` lands.
  */
-export function useCounsel(user: Address | undefined, _viewKey: string | null) {
+export function useCounsel(
+  user: Address | undefined,
+  _viewKey: string | null,
+  zone?: number,
+) {
   const [messages, setMessages] = useState<CounselMessage[]>([]);
   const [pulse, setPulse] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -87,6 +96,18 @@ export function useCounsel(user: Address | undefined, _viewKey: string | null) {
     );
     return unsub;
   }, [user, analyze]);
+
+  // Zone escalation: when the user crosses upward (e.g. into the
+  // liquidatable zone), force a fresh analyze immediately so the copilot
+  // doesn't wait for the SSE round-trip from the on-chain reveal.
+  const lastZoneRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!user || zone === undefined) return;
+    const prev = lastZoneRef.current;
+    lastZoneRef.current = zone;
+    if (prev === undefined) return;
+    if (zone > prev) void analyze();
+  }, [user, zone, analyze]);
 
   const send = useCallback(
     async (message: string, snapshot?: PositionSnapshot) => {

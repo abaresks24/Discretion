@@ -17,10 +17,10 @@ const config: Config = {
           deepest: "#04060a",
         },
         phos: {
-          DEFAULT: "#00ff9f",     // primary phosphor
-          dim: "#00b370",
-          faint: "#00663f",
-          glow: "rgba(0, 255, 159, 0.08)",
+          DEFAULT: "#00cc00",     // primary phosphor (protocol green)
+          dim: "#008800",
+          faint: "#004400",
+          glow: "rgba(0, 204, 0, 0.08)",
         },
         amber: {
           DEFAULT: "#ffb000",

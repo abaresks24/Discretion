@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useAccount, useWriteContract } from "wagmi";
 import { parseUnits, type Address } from "viem";
 import { useNoxHandle, type NoxHandleClient } from "./useNoxHandle";
@@ -17,17 +17,16 @@ import {
 
 const OPERATOR_TTL_SECS = 60 * 60 * 6;
 const MAX_UINT256 = 2n ** 256n - 1n;
+const ZERO_HANDLE = "0x0000000000000000000000000000000000000000000000000000000000000000";
 
 // MetaMask's eth_estimateGas + fee suggestion is broken on Arbitrum Sepolia
-// for FHE-heavy calls — it sometimes returns absurd gas (7900 ETH suggestions)
-// and at other times sets maxFeePerGas below the live base fee, causing
-// reverts with "max fee per gas less than block base fee". We sidestep both
-// by hard-coding generous limits. Arbitrum sequencer ignores priority fee, so
-// 0 is fine; 0.1 gwei caps the *displayed* MetaMask max — actual paid cost is
-// gasUsed × base fee (~0.02 gwei), so a couple of microcents per tx.
+// for FHE-heavy calls. Hardcoded limits sidestep absurd gas suggestions and
+// "max fee per gas less than block base fee" reverts. Arbitrum sequencer
+// ignores priority fee, so 0 is fine; 0.1 gwei caps the *displayed* MetaMask
+// max — actual paid cost is gasUsed × base fee (~0.02 gwei).
 const FHE_GAS_OVERRIDES = {
   gas: 1_500_000n,
-  maxFeePerGas: 100_000_000n, // 0.1 gwei
+  maxFeePerGas: 100_000_000n,
   maxPriorityFeePerGas: 0n,
 } as const;
 const LIGHT_GAS_OVERRIDES = {
@@ -45,6 +44,14 @@ const WRAP_GAS_OVERRIDES = {
   maxFeePerGas: 100_000_000n,
   maxPriorityFeePerGas: 0n,
 } as const;
+const QUEUE_GAS_OVERRIDES = {
+  gas: 200_000n,
+  maxFeePerGas: 100_000_000n,
+  maxPriorityFeePerGas: 0n,
+} as const;
+
+const MIXER_BATCH_TIMEOUT_MS = 5 * 60 * 1000;
+const MIXER_POLL_INTERVAL_MS = 5_000;
 
 export type Verb =
   | "Deposit"
@@ -57,23 +64,26 @@ export type Verb =
 export const isPullVerb = (v: Verb) =>
   v === "Deposit" || v === "Settle" || v === "Supply";
 
-/** Default asset for a verb when the caller doesn't specify one. */
 function defaultAssetForVerb(v: Verb): AssetMeta {
   if (v === "Deposit" || v === "Withdraw") return COLLATERAL_ASSETS[0]; // RLC
-  return DEBT_ASSET; // USDC for Borrow / Settle / Supply / Unsupply
+  return DEBT_ASSET;
 }
 
 /**
- * Unified entry point for every user allocation.
- * `opts.assetSymbol` selects which collateral asset Deposit / Withdraw target.
- * Borrow / Settle / Supply / Unsupply always operate on the single debt asset
- * (USDC) so the asset is implicit.
+ * Unified entry point for every user allocation. The mixer is now automatic:
+ * any wrap leg routes through the WrapQueue when the asset has one
+ * (RLC today). Assets without a WrapQueue fall back to a direct wrap.
  */
 export function useAllocate() {
   const { address } = useAccount();
   const { client: nox, isLoading: noxLoading, error: noxError } = useNoxHandle();
   const { writeContractAsync, isPending } = useWriteContract();
   const { refetch } = usePosition(address);
+
+  // Mirror the latest nox in a ref so the click handler never reads a stale
+  // `null` snapshot from a transient re-render.
+  const noxRef = useRef(nox);
+  noxRef.current = nox;
 
   const [pendingVerb, setPendingVerb] = useState<Verb | null>(null);
   const [pendingStep, setPendingStep] = useState<string | null>(null);
@@ -82,83 +92,196 @@ export function useAllocate() {
   async function allocate(
     verb: Verb,
     amount: string,
-    opts: { mixer?: boolean; assetSymbol?: string } = {},
-  ) {
+    opts: { assetSymbol?: string } = {},
+  ): Promise<boolean> {
+    console.log("[allocate] called", { verb, amount, opts, hasAddress: !!address, hasNox: !!noxRef.current });
     if (!address) {
+      console.warn("[allocate] no address");
       setStepError("connect a wallet first");
-      return;
+      return false;
     }
-    if (!nox) {
-      setStepError(
-        noxLoading
-          ? "nox gateway still initialising — retry in ~5s"
-          : "nox gateway unavailable — see devtools",
-      );
-      return;
+    // Wait up to 5s for the Nox client if it's mid-init (wagmi can flicker
+    // walletClient on render and momentarily null `nox`).
+    let resolvedNox = noxRef.current;
+    if (!resolvedNox) {
+      setPendingVerb(verb);
+      setPendingStep("waiting for nox gateway…");
+      const start = Date.now();
+      while (Date.now() - start < 5_000) {
+        await new Promise((r) => setTimeout(r, 200));
+        if (noxRef.current) {
+          resolvedNox = noxRef.current;
+          break;
+        }
+      }
+      if (!resolvedNox) {
+        setStepError(
+          noxLoading
+            ? "nox gateway still initialising — retry in a moment"
+            : "nox gateway unavailable — see devtools",
+        );
+        setPendingVerb(null);
+        setPendingStep(null);
+        return false;
+      }
     }
+    const noxClient = resolvedNox;
     const asset = opts.assetSymbol
       ? ASSETS[opts.assetSymbol.toUpperCase()] ?? defaultAssetForVerb(verb)
       : defaultAssetForVerb(verb);
     if (!asset) {
       setStepError(`unknown asset: ${opts.assetSymbol}`);
-      return;
+      return false;
     }
     const raw = parseUnits(amount, asset.decimals);
     setStepError(null);
     setPendingVerb(verb);
     try {
-      if (verb === "Deposit" && opts.mixer && asset.hasMixer) {
-        await runMixerQueueFlow(asset, raw, address);
-        setPendingStep(
-          `queued · iapp will batch within 2–5 min · c${asset.symbol} arrives in your wallet`,
+      if (isPullVerb(verb)) {
+        await runPullFlow(
+          verb as "Deposit" | "Settle" | "Supply",
+          asset,
+          raw,
+          address,
+          noxClient,
         );
-        await new Promise((r) => setTimeout(r, 8000));
-      } else if (isPullVerb(verb)) {
-        await runPullFlow(verb as "Deposit" | "Settle" | "Supply", asset, raw, address, nox);
       } else {
-        await runPushFlow(verb as "Withdraw" | "Borrow" | "Unsupply", asset, raw, nox);
+        await runPushFlow(
+          verb as "Withdraw" | "Borrow" | "Unsupply",
+          asset,
+          raw,
+          noxClient,
+        );
       }
       await refetch();
+      setPendingStep(null);
+      setPendingVerb(null);
+      return true;
     } catch (err: any) {
       console.error("allocate failed", err);
       setStepError(err?.shortMessage ?? err?.message ?? "transaction failed");
-    } finally {
       setPendingStep(null);
       setPendingVerb(null);
+      return false;
     }
   }
 
-  async function runMixerQueueFlow(asset: AssetMeta, raw: bigint, user: Address) {
-    if (!asset.hasMixer) {
-      throw new Error(`${asset.symbol} has no mixer`);
+  async function readCBalance(
+    wrapper: Address,
+    user: Address,
+    noxClient: NoxHandleClient,
+    cSym: string,
+  ): Promise<bigint> {
+    const handle = (await publicClient.readContract({
+      address: wrapper,
+      abi: erc7984Abi,
+      functionName: "confidentialBalanceOf",
+      args: [user],
+    })) as `0x${string}`;
+    if (!handle || handle === "0x" || handle === ZERO_HANDLE) return 0n;
+    try {
+      return await noxClient.decrypt(handle);
+    } catch (err: any) {
+      const msg = err?.shortMessage ?? err?.message ?? String(err);
+      if (/network|fetch|gateway|timeout|secrets/i.test(msg)) {
+        throw new Error(
+          `cannot read confidential ${cSym} balance (gateway unreachable). Aborting before wrap to avoid double-wrapping. Retry in a moment.`,
+        );
+      }
+      return 0n;
     }
-    const currentAllowance = (await publicClient.readContract({
-      address: asset.underlying,
+  }
+
+  async function ensureWrapped(
+    asset: AssetMeta,
+    raw: bigint,
+    user: Address,
+    noxClient: NoxHandleClient,
+  ): Promise<void> {
+    const wrapper = asset.cToken;
+    const underlying = asset.underlying;
+    const sym = asset.symbol.toLowerCase();
+    const cSym = `c${sym}`;
+
+    let cBalance = await readCBalance(wrapper, user, noxClient, cSym);
+    if (cBalance >= raw) return; // nothing to wrap
+
+    const toWrap = raw - cBalance;
+
+    const queueAddr = asset.wrapQueue;
+    const ZERO = "0x0000000000000000000000000000000000000000";
+    if (asset.hasMixer && queueAddr && queueAddr.toLowerCase() !== ZERO) {
+      // ---- Anonymous wrap via WrapQueue (TEE batch) ----
+      const allowance = (await publicClient.readContract({
+        address: underlying,
+        abi: erc20Abi,
+        functionName: "allowance",
+        args: [user, queueAddr],
+      })) as bigint;
+      if (allowance < toWrap) {
+        setPendingStep(`approve ${sym} → mixer (one-time)…`);
+        await writeContractAsync({
+          address: underlying,
+          abi: erc20Abi,
+          functionName: "approve",
+          args: [queueAddr, MAX_UINT256],
+          ...APPROVE_GAS_OVERRIDES,
+        });
+      }
+      setPendingStep(`queueing ${sym} for tee batch (anonymous)…`);
+      await writeContractAsync({
+        address: queueAddr,
+        abi: wrapQueueAbi,
+        functionName: "queueWrap",
+        args: [toWrap, user],
+        ...QUEUE_GAS_OVERRIDES,
+      });
+      // Wait for the keeper to process the batch.
+      const start = Date.now();
+      while (Date.now() - start < MIXER_BATCH_TIMEOUT_MS) {
+        const elapsed = Math.floor((Date.now() - start) / 1000);
+        setPendingStep(
+          `waiting for tee batch · ~${elapsed}s · cTokens land at your address`,
+        );
+        await new Promise((r) => setTimeout(r, MIXER_POLL_INTERVAL_MS));
+        try {
+          cBalance = await readCBalance(wrapper, user, noxClient, cSym);
+          if (cBalance >= raw) return;
+        } catch {
+          // gateway hiccup — keep polling
+        }
+      }
+      throw new Error(
+        `mixer batch did not settle in ${Math.round(
+          MIXER_BATCH_TIMEOUT_MS / 60_000,
+        )} min. Try again in a moment.`,
+      );
+    }
+
+    // ---- Direct wrap (asset has no WrapQueue deployed) ----
+    const allowance = (await publicClient.readContract({
+      address: underlying,
       abi: erc20Abi,
       functionName: "allowance",
-      args: [user, env.WRAP_QUEUE_ADDRESS],
+      args: [user, wrapper],
     })) as bigint;
-    if (currentAllowance < raw) {
-      setPendingStep(
-        `approving ${asset.symbol.toLowerCase()} → wrap_queue (one-time, unlimited)…`,
-      );
+    if (allowance < toWrap) {
+      setPendingStep(`approve ${sym} (one-time)…`);
       await writeContractAsync({
-        address: asset.underlying,
+        address: underlying,
         abi: erc20Abi,
         functionName: "approve",
-        args: [env.WRAP_QUEUE_ADDRESS, MAX_UINT256],
+        args: [wrapper, MAX_UINT256],
         ...APPROVE_GAS_OVERRIDES,
       });
     }
-    setPendingStep("queueing wrap for tee batch…");
+    setPendingStep(`wrapping ${sym} → ${cSym}…`);
     await writeContractAsync({
-      address: env.WRAP_QUEUE_ADDRESS,
-      abi: wrapQueueAbi,
-      functionName: "queueWrap",
-      args: [raw, user],
-      gas: 200_000n,
-      maxFeePerGas: 100_000_000n,
-      maxPriorityFeePerGas: 0n,
+      address: wrapper,
+      abi: erc7984Abi,
+      functionName: "wrap",
+      args: [user, toWrap],
+      ...WRAP_GAS_OVERRIDES,
     });
   }
 
@@ -170,53 +293,9 @@ export function useAllocate() {
     noxClient: NoxHandleClient,
   ) {
     const wrapper = asset.cToken;
-    const underlying = asset.underlying;
     const sym = asset.symbol.toLowerCase();
-    const cSym = `c${asset.symbol.toLowerCase()}`;
 
-    let cBalance = 0n;
-    try {
-      const handle = (await publicClient.readContract({
-        address: wrapper,
-        abi: erc7984Abi,
-        functionName: "confidentialBalanceOf",
-        args: [user],
-      })) as `0x${string}`;
-      cBalance = await noxClient.decrypt(handle);
-    } catch {
-      /* no ACL yet — assume zero confidential balance */
-    }
-
-    if (cBalance < raw) {
-      const toWrap = raw - cBalance;
-      const currentAllowance = (await publicClient.readContract({
-        address: underlying,
-        abi: erc20Abi,
-        functionName: "allowance",
-        args: [user, wrapper],
-      })) as bigint;
-      if (currentAllowance < toWrap) {
-        setPendingStep(`approving ${sym} (one-time, unlimited)…`);
-        // Explicit gas limit sidesteps a MetaMask bug on Arbitrum Sepolia
-        // where eth_estimateGas sporadically returns "unavailable" for
-        // ERC-20 approvals, blocking the user from confirming in MetaMask.
-        await writeContractAsync({
-          address: underlying,
-          abi: erc20Abi,
-          functionName: "approve",
-          args: [wrapper, MAX_UINT256],
-          ...APPROVE_GAS_OVERRIDES,
-        });
-      }
-      setPendingStep(`wrapping ${sym} → ${cSym}…`);
-      await writeContractAsync({
-        address: wrapper,
-        abi: erc7984Abi,
-        functionName: "wrap",
-        args: [user, toWrap],
-        ...WRAP_GAS_OVERRIDES,
-      });
-    }
+    await ensureWrapped(asset, raw, user, noxClient);
 
     const isOp = (await publicClient.readContract({
       address: wrapper,
@@ -227,9 +306,6 @@ export function useAllocate() {
     if (!isOp) {
       setPendingStep("granting vault operator rights…");
       const until = Math.floor(Date.now() / 1000) + OPERATOR_TTL_SECS;
-      // Explicit gas: MetaMask's eth_estimateGas is unreliable on Arbitrum
-      // Sepolia for FHE-related calls and shows absurd suggestions like
-      // "7900 ETH". Hardcoded limits are well above actual usage.
       await writeContractAsync({
         address: wrapper,
         abi: erc7984Abi,
@@ -240,10 +316,6 @@ export function useAllocate() {
     }
 
     setPendingStep("encrypting amount…");
-    // The proof's applicationContract must be the contract the user signs
-    // against (the vault) — not the inner cToken that the vault relays the
-    // confidentialTransferFrom call into. Using `wrapper` here causes
-    // "Owner mismatch" inside the cToken's Nox.fromExternal verifier.
     const { handle, handleProof } = await noxClient.encryptInput(
       raw,
       "uint256",
@@ -263,11 +335,14 @@ export function useAllocate() {
       const fn = verb === "Settle" ? "repay" : "supplyLiquidity";
       const label = verb === "Settle" ? "repay" : "supply-liquidity";
       setPendingStep(`submitting ${label}…`);
+      // The third arg (`raw`) is the plaintext amount needed by the vault to
+      // maintain its public totalDebt / totalSupplied counters and derive a
+      // live utilization-based APR. Individual user balances stay encrypted.
       await writeContractAsync({
         address: env.VAULT_ADDRESS,
         abi: vaultAbi,
         functionName: fn,
-        args: [handle, handleProof],
+        args: [handle, handleProof, raw],
         ...FHE_GAS_OVERRIDES,
       });
     }
@@ -279,32 +354,41 @@ export function useAllocate() {
     raw: bigint,
     noxClient: NoxHandleClient,
   ) {
+    console.log("[push] enter", { verb, asset: asset.symbol, raw: raw.toString() });
     setPendingStep("encrypting amount…");
+    console.log("[push] encryptInput…");
     const { handle, handleProof } = await noxClient.encryptInput(
       raw,
       "uint256",
       env.VAULT_ADDRESS,
     );
+    console.log("[push] encryptInput ✓", { handle, handleProof: handleProof.slice(0, 18) + "…" });
     if (verb === "Withdraw") {
       setPendingStep(`submitting withdraw-${asset.symbol.toLowerCase()}…`);
-      await writeContractAsync({
+      console.log("[push] writeContract: withdrawCollateral");
+      const tx = await writeContractAsync({
         address: env.VAULT_ADDRESS,
         abi: vaultAbi,
         functionName: "withdrawCollateral",
         args: [asset.underlying, handle, handleProof],
         ...FHE_GAS_OVERRIDES,
       });
+      console.log("[push] tx submitted ✓", tx);
     } else {
       const fn = verb === "Borrow" ? "borrow" : "withdrawLiquidity";
       const label = verb === "Borrow" ? "borrow" : "withdraw-liquidity";
       setPendingStep(`submitting ${label}…`);
-      await writeContractAsync({
+      console.log("[push] writeContract:", fn);
+      // `raw` is the plaintext amount fed into the vault's public aggregate
+      // counters (utilization). Encrypted handle still drives privacy.
+      const tx = await writeContractAsync({
         address: env.VAULT_ADDRESS,
         abi: vaultAbi,
         functionName: fn,
-        args: [handle, handleProof],
+        args: [handle, handleProof, raw],
         ...FHE_GAS_OVERRIDES,
       });
+      console.log("[push] tx submitted ✓", tx);
     }
   }
 

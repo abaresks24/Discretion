@@ -65,6 +65,35 @@ export async function analyzePosition(
   return (await res.json()) as AnalyzeResponse;
 }
 
+/**
+ * Self-report a liquidatable position. Frontend calls this when its own
+ * decrypted state crosses the liquidation threshold (LTV ≥ 85%). The
+ * backend (= on-chain liquidationOperator) signs `revealLiquidatable` so
+ * that the position becomes publicly visible on /liquidations.
+ */
+export async function reportLiquidatable(payload: {
+  user: string;
+  ltvBps: number;
+  debtAmount: bigint;
+  assets: string[];
+  collateralAmounts: bigint[];
+}): Promise<{ ok: boolean; hash?: `0x${string}` }> {
+  const res = await fetch(`${env.RELAYER_URL}/liquidatable`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...payload,
+      debtAmount: payload.debtAmount.toString(),
+      collateralAmounts: payload.collateralAmounts.map((b) => b.toString()),
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`reportLiquidatable failed: ${res.status} ${text}`);
+  }
+  return (await res.json()) as { ok: boolean; hash?: `0x${string}` };
+}
+
 export type ChatHistoryItem = { role: "user" | "assistant"; content: string };
 
 export async function* streamChat(opts: {

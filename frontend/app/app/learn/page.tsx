@@ -10,14 +10,15 @@ export default function LearnPage() {
     <ScreenShell
       tag="/learn"
       title="how this works."
-      subtitle="cypherpunk primer · confidential defi · iexec nox · tdx"
+      subtitle="confidential defi · iexec nox · live rate engine"
     >
       <div className="max-w-3xl space-y-6 pb-16">
         <p className="font-mono text-[12px] leading-relaxed text-ink-secondary">
-          Discretion is a confidential lending vault on Arbitrum. Your
-          collateral, your debt, and your health factor are encrypted on-chain.
-          Only you — and an owner-gated audit role — can read them. Below: the
-          short version of every piece, and why each one matters.
+          Discretion is a multi-collateral lending vault on Arbitrum Sepolia.
+          Per-user collateral, debt, and LP shares are encrypted on-chain
+          (ERC-7984 via iExec Nox). Aggregate utilization is public so anyone
+          can audit the protocol's health and price the market — but no
+          individual position is visible.
         </p>
 
         <Lesson
@@ -27,20 +28,22 @@ export default function LearnPage() {
           defaultOpen
         >
           <Para>
-            In public DeFi, every balance, every loan, every liquidation trigger
-            is visible to anyone with a block explorer. Whales get front-run,
-            strategies get copied, large positions get hunted. <B>Discretion</B>{" "}
-            is a lending vault where the amounts never leave cipher form.
+            In public DeFi, every balance, every loan, every liquidation
+            trigger is visible to anyone with a block explorer. Whales get
+            front-run, strategies get copied, large positions get hunted.{" "}
+            <B>Discretion</B> is a lending vault where individual amounts
+            never leave cipher form.
           </Para>
           <Para>
-            You post collateral (cRLC), borrow a debt asset (cUSDC), and the
-            chain sees only opaque ciphertext handles — no amount, no LTV, no
-            health factor. Only you, holding the decryption key in your wallet,
-            can see your own position. An owner-gated audit ACL exists for
-            compliance, disclosed upfront.
+            You post collateral in any of three confidential assets (cRLC,
+            cWETH, cUSDC), borrow cUSDC, and the chain sees only opaque
+            ciphertext handles for your position — no per-user amount, no
+            per-user LTV. Only you, holding the decryption key in your
+            wallet, can see your own state. An owner-gated audit ACL exists
+            for compliance, disclosed upfront.
           </Para>
           <Block label="TL;DR">
-            private positions · public rails · same composability
+            private positions · public market metrics · same composability
           </Block>
         </Lesson>
 
@@ -51,9 +54,9 @@ export default function LearnPage() {
         >
           <Para>
             Standard ERC-20 stores <code>mapping(address =&gt; uint256)</code>{" "}
-            balances — readable by anyone. ERC-7984 replaces the amount with a{" "}
-            <code>bytes32</code> <B>handle</B>: a pointer to a ciphertext held
-            by the FHE coprocessor.
+            balances — readable by anyone. ERC-7984 replaces the amount with
+            a <code>bytes32</code> <B>handle</B>: a pointer to a ciphertext
+            held by the FHE coprocessor.
           </Para>
           <Pre>{`// ERC-20
 function balanceOf(address) returns (uint256);
@@ -63,10 +66,10 @@ function confidentialBalanceOf(address) returns (bytes32);
 //                                        ^^^^^^^
 //                                        opaque handle`}</Pre>
           <Para>
-            The coprocessor can run <code>add</code>, <code>sub</code>,{" "}
-            <code>lt</code>, <code>select</code> <B>directly on ciphertext</B>,
-            under an access-control list (ACL). Only accounts granted on the
-            ACL can ask the gateway to decrypt.
+            The coprocessor runs <code>add</code>, <code>sub</code>,{" "}
+            <code>mul</code>, <code>lt</code>, <code>select</code>{" "}
+            <B>directly on ciphertext</B>, under an access-control list
+            (ACL). Only accounts on the ACL can ask the gateway to decrypt.
           </Para>
           <Block label="BLOCK EXPLORER">
             Everyone sees: <code>confidentialBalanceOf(user) =&gt; 0x0000aa…</code>
@@ -85,9 +88,9 @@ function confidentialBalanceOf(address) returns (bytes32);
           </Para>
           <List>
             <Item>
-              <B>Coprocessor:</B> stores ciphertexts and runs FHE ops on them —
-              the contract emits symbolic handles, the coprocessor keeps the
-              real data.
+              <B>Coprocessor:</B> stores ciphertexts and runs FHE ops on
+              them — the contract emits symbolic handles, the coprocessor
+              keeps the real data.
             </Item>
             <Item>
               <B>Gateway:</B> the HTTP endpoint your browser calls to{" "}
@@ -95,15 +98,21 @@ function confidentialBalanceOf(address) returns (bytes32);
               <code>decrypt()</code> when reading your own handles.
             </Item>
             <Item>
-              <B>ACL:</B> every handle carries a list of allowed readers. Your
-              own handles are authorised for your wallet via{" "}
-              <code>FHE.allow(user, handle)</code> inside the contract.
+              <B>ACL:</B> every handle carries a list of allowed readers.
+              When the vault writes a handle to storage, it grants
+              persistent ACL to (a) the user, (b) the owner (audit), (c)
+              the liquidation operator, and (d) <B>itself</B> — without
+              that last one, subsequent txs can't even read their own
+              storage.
             </Item>
           </List>
-          <Pre>{`// client side, in useAllocate.ts
+          <Pre>{`// client side (frontend hooks/useAllocate.ts)
 const { handle, handleProof } =
-  await nox.encryptInput(raw, "uint256", wrapper);
-await vault.depositCollateral(handle, handleProof);`}</Pre>
+  await nox.encryptInput(raw, "uint256", VAULT_ADDRESS);
+
+await vault.depositCollateral(asset, handle, handleProof);
+// or
+await vault.borrow(handle, handleProof, plainAmount);`}</Pre>
           <Block label="KEYS">
             View keys live in your wallet. We never store them server-side.
             Logout clears them.
@@ -112,84 +121,156 @@ await vault.depositCollateral(handle, handleProof);`}</Pre>
 
         <Lesson
           index="04"
-          title="THE TDX MIXER"
-          blurb="Why wrapping plaintext → confidential leaks timing, and how we fix it."
+          title="MIXERS · ENTRY + EXIT"
+          blurb="Why every wrap leaks timing, and how we batch them away."
         >
           <Para>
             When you convert plaintext RLC into confidential cRLC, the{" "}
-            <code>wrap(user, amount)</code> call emits a public event showing{" "}
-            <B>amount and recipient</B>. A chain watcher can link "this wrap =
-            this later deposit". The amount is public, the destination becomes
-            trivially correlated.
+            <code>wrap(user, amount)</code> call emits a public event
+            tying <B>amount and recipient</B>. A chain watcher links "this
+            wrap = this later deposit". The amount is public; the
+            destination becomes trivially correlated.
           </Para>
           <Para>
-            To break that link, Discretion ships a <B>soft-mixer</B>: a queue
-            contract + an iExec <B>iApp</B> running inside an Intel TDX
-            enclave. Users call <code>queueWrap(amount, recipient)</code>;
-            every N minutes, the enclave processes the batch and signs a
-            single <code>processBatch</code> transaction that mints cRLC to all
-            recipients at once.
+            Discretion ships <B>four queues</B> that break that link:
+            three entry mixers (<code>WrapQueue</code> for RLC / WETH /
+            USDC) and one exit mixer (<code>UnwrapQueue</code> for cUSDC →
+            USDC). Users call <code>queueWrap(amount, recipient)</code>{" "}
+            (the frontend does this automatically when you supply or lock);
+            a keeper polls every 30s and signs a single{" "}
+            <code>processBatch</code> tx that wraps the aggregate and fans
+            cTokens out to all recipients at once.
           </Para>
           <Pre>{`queueWrap(user=A, 0.1) ─┐
 queueWrap(user=B, 0.5) ─┤
-queueWrap(user=C, 0.2) ─┤──► TDX enclave
-                        │    signs processBatch(...)
-queueWrap(user=D, 0.3) ─┘      │
-                               ▼
-                 cRLC mints: A=0.1 · B=0.5 · C=0.2 · D=0.3
-                     (amounts public, pairing with deposit broken)`}</Pre>
-          <Block label="TRUST">
-            The operator key is sealed <B>inside</B> the enclave — even we, the
-            deployer, can't extract it. Attestation is verifiable on iExec.
+queueWrap(user=C, 0.2) ─┤──► keeper signs processBatch(...)
+queueWrap(user=D, 0.3) ─┘                │
+                                         ▼
+                cTokens minted: A=0.1 · B=0.5 · C=0.2 · D=0.3
+                    (amounts public, pairing with deposit broken)`}</Pre>
+          <Block label="OPERATOR ROLE">
+            Today: a Node.js keeper in the backend relayer signs{" "}
+            <code>processBatch</code> with a fresh hot key (rotatable).
+            Production: an iExec iApp (<code>discretion-mixer</code>,
+            scaffolded in this repo) runs the same logic inside an Intel
+            TDX enclave with a sealed key — the deployer can't extract it,
+            attestation is verifiable on iExec.
           </Block>
         </Lesson>
 
         <Lesson
           index="05"
           title="LENDING MECHANICS"
-          blurb="How you borrow, what triggers liquidation, how rates behave."
+          blurb="What you can do, what's enforced, what's at risk."
         >
           <Para>
-            The vault is a single-collateral, single-debt market. You post
-            cRLC, you can borrow up to <B>75% LTV</B> in cUSDC. If your LTV
-            crosses <B>85%</B> (liquidation threshold), any liquidator can
-            repay part of your debt and seize your collateral at a <B>5%
-            bonus</B>.
+            <B>Three collateral assets</B> (RLC, WETH, USDC), single debt
+            asset (cUSDC). Each collateral has its own max-LTV. Your
+            borrow capacity is the <B>weighted</B> sum across all
+            collateral you've posted.
           </Para>
-          <Pre>{`LTV            = debt_usd / collateral_usd
-max-borrow LTV = 75%        ← you can't borrow past this
-liq threshold  = 85%        ← crossing this = liquidatable
-liq bonus      = 5%         ← incentive to the liquidator`}</Pre>
+          <Pre>{`Per-asset max LTV
+  RLC   70%
+  WETH  75%
+  USDC  75%
+
+Borrow capacity (USD) = Σ collat_i × price_i × ltv_i / 100%
+Headroom              = capacity − current debt`}</Pre>
           <Para>
-            Rates follow a <B>kinked utilisation curve</B>: below 80% util the
-            borrow APR climbs slowly; past 80% it spikes to keep liquidity
-            available. Supply APR is a fraction of borrow APR. The{" "}
-            <code>HealthFactorThresholdCrossed</code> event is the only public
-            signal your position emits — it does not leak amounts.
+            Liquidation threshold is <B>85% LTV</B>; liquidator bonus is{" "}
+            <B>5%</B>. The vault's FHE LTV check
+            (<code>_checkBorrowLtv</code>) sums weighted collateral on
+            ciphertext and compares against (current debt + new borrow).
+            If the check fails, the borrow is <B>silently capped to 0</B>{" "}
+            on-chain — no revert leaks "user is over-LTV". The frontend
+            also greys out the borrow button before you sign so you don't
+            spend gas on a silent fail.
           </Para>
-          <Block label="HEALTH FACTOR">
-            zone 0 (green, LTV &lt; 60%) · 1 (yellow) · 2 (orange) · 3 (red,
-            liquidatable)
+          <Block label="HEALTH FACTOR ZONES">
+            zone 0 (green, LTV &lt; 60%) · 1 (yellow) · 2 (orange) · 3
+            (red, liquidatable). Crossing a zone triggers a public event
+            that emits the user + zone — never the amounts.
           </Block>
         </Lesson>
 
         <Lesson
           index="06"
+          title="RATE ENGINE · LOG CURVE"
+          blurb="Borrow APR == Supply APR. No protocol margin. Live, public."
+        >
+          <Para>
+            Most lending protocols set rates from a kinked curve and skim a
+            reserve factor between borrowers and suppliers. Discretion
+            does neither: <B>borrow APR equals supply APR</B>, and the
+            curve is a smooth concave log shape — steep slope near 0% to
+            attract suppliers early, mild plateau through normal
+            operating ranges, asymptote to 100% at exactly 100%
+            utilization.
+          </Para>
+          <Pre>{`utilizationBps = totalDebt × 10_000 / totalSupplied   (0 if totalSupplied == 0)`}</Pre>
+
+          <RateCurveGraph />
+
+          <Para>
+            Implemented as a <B>10-segment piecewise-linear function</B>{" "}
+            in Solidity (no log/pow library needed, monotonic, continuous
+            at every breakpoint). See <code>borrowRateBps()</code> in{" "}
+            <code>ConfidentialLendingVault.sol</code>.
+          </Para>
+          <Block label="WHY EQUAL APRs">
+            No protocol skim — every basis point a borrower pays goes to
+            suppliers, scaled by utilization. Simpler model, better
+            alignment, and one fewer tuning knob.
+          </Block>
+        </Lesson>
+
+        <Lesson
+          index="07"
+          title="WHAT'S PUBLIC, WHAT'S PRIVATE"
+          blurb="The exact privacy boundary."
+        >
+          <List>
+            <Item>
+              <B>Private:</B> per-user collateral (per asset), debt, LP
+              shares, individual confidential transfer amounts.
+            </Item>
+            <Item>
+              <B>Public:</B> aggregate <code>totalDebt</code> and{" "}
+              <code>totalSupplied</code> (drives the rate curve), oracle
+              prices, utilization, borrow APR, supply APR.
+            </Item>
+            <Item>
+              <B>Public but unlinkable:</B> the fact that an address
+              participated in the vault (events fire) but not the amount
+              and not the timing of the underlying conversion (mixer
+              breaks the link).
+            </Item>
+          </List>
+          <Block label="TRADE-OFF">
+            Aggregate totals are revealed because they're required to set
+            an honest, automatic rate. Individual privacy is preserved.
+            Same trade-off every transparent-chain lending protocol
+            already accepts.
+          </Block>
+        </Lesson>
+
+        <Lesson
+          index="08"
           title="GLOSSARY"
           blurb="Terms you will see across the app."
         >
           <Glossary
             items={[
               ["handle", "bytes32 pointer to a ciphertext held by the Nox coprocessor."],
-              ["operator", "ERC-7984 role allowing a contract (e.g. vault) to move your cTokens on your behalf."],
-              ["wrap", "convert plaintext ERC-20 → confidential ERC-7984. Public amount, private from that point on."],
-              ["unwrap", "reverse of wrap — makes the amount public again on exit."],
-              ["ACL", "Access Control List: list of addresses allowed to decrypt a handle via the Nox gateway."],
-              ["round", "batching window in the mixer queue. The iApp processes one round per run."],
-              ["attestation", "cryptographic proof that code ran inside a genuine TDX enclave with a specific measurement."],
+              ["operator", "ERC-7984 role allowing a contract (e.g. vault, queue) to move your cTokens on your behalf."],
+              ["wrap / unwrap", "convert plaintext ERC-20 ⇆ confidential ERC-7984. Public amount at the boundary, private internally."],
+              ["ACL", "Access Control List: addresses allowed to decrypt a handle via the Nox gateway."],
+              ["queue / batch", "the wrap/unwrap mixers — entries collected over time, processed by the keeper in a single tx."],
+              ["plain amount", "the user-supplied plaintext value passed to the vault alongside the encrypted handle, used for the public rate aggregates."],
+              ["utilization", "totalDebt / totalSupplied. Public, drives the rate curve."],
+              ["LTV", "loan-to-value, debt / collateral value. Per-asset cap on how much you can borrow."],
+              ["health factor zone", "0 safe · 1 warning · 2 danger · 3 liquidatable. Crossings emit public events without amounts."],
               ["audit grant", "owner-gated ACL that lets a designated auditor decrypt all positions — opt-out for mainnet."],
-              ["LTV", "loan-to-value, debt / collateral value."],
-              ["health factor", "derived from LTV; crosses zones as your position drifts."],
             ]}
           />
         </Lesson>
@@ -206,7 +287,7 @@ liq bonus      = 5%         ← incentive to the liquidator`}</Pre>
             </p>
             <p>
               → <a href="/app/mix" className="cursor-target text-phos hover:underline">/app/mix</a>{" "}
-              — watch the mixer queue tick in real time.
+              — watch the four mixer queues tick in real time.
             </p>
           </div>
         </AsciiCard>
@@ -309,6 +390,250 @@ function Block({ label, children }: { label: string; children: ReactNode }) {
         {label}
       </div>
       <div className="text-ink-secondary">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * SVG plot of the borrow/supply APR curve. Anchor points mirror the
+ * piecewise-linear segments inside `borrowRateBps()`. Linear axes — the
+ * exponential-tail behaviour shows up visually as a sharp upward sweep
+ * in the rightmost 1% of the x-axis.
+ */
+function RateCurveGraph() {
+  // (utilization%, APR%)
+  const ANCHORS: [number, number, string?][] = [
+    [0, 0],
+    [10, 1],
+    [50, 4],
+    [80, 7],
+    [95, 9],
+    [98, 10, "98% → 10%"],
+    [99, 15],
+    [99.5, 25],
+    [99.9, 50],
+    [99.99, 80],
+    [100, 100],
+  ];
+
+  // Plot canvas
+  const W = 620;
+  const H = 320;
+  const PL = 50; // padding left
+  const PR = 28; // padding right
+  const PT = 22; // padding top
+  const PB = 50; // padding bottom
+  const PW = W - PL - PR;
+  const PH = H - PT - PB;
+
+  const xOf = (u: number) => PL + (u / 100) * PW;
+  const yOf = (apr: number) => PT + PH - (apr / 100) * PH;
+
+  const xTicks = [0, 25, 50, 75, 95, 100];
+  const yTicks = [0, 25, 50, 75, 100];
+
+  const polylinePoints = ANCHORS.map(
+    ([u, a]) => `${xOf(u).toFixed(2)},${yOf(a).toFixed(2)}`,
+  ).join(" ");
+
+  // Highlight anchor: 98% → 10%
+  const highlight = ANCHORS.find((a) => a[2]);
+
+  return (
+    <div className="border border-ink-tertiary bg-bg p-3">
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink-tertiary">
+          curve
+        </span>
+        <span className="font-mono text-[10px] text-ink-tertiary">
+          x = utilization · y = apr
+        </span>
+      </div>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        width="100%"
+        preserveAspectRatio="xMidYMid meet"
+        className="block"
+      >
+        {/* y-axis grid + labels */}
+        {yTicks.map((t) => (
+          <g key={`y-${t}`}>
+            <line
+              x1={PL}
+              y1={yOf(t)}
+              x2={W - PR}
+              y2={yOf(t)}
+              stroke="currentColor"
+              className="text-ink-tertiary/40"
+              strokeWidth={1}
+              strokeDasharray={t === 0 ? "0" : "2 4"}
+            />
+            <text
+              x={PL - 8}
+              y={yOf(t) + 3}
+              textAnchor="end"
+              className="fill-ink-tertiary"
+              style={{ font: "10px ui-monospace, monospace" }}
+            >
+              {t}%
+            </text>
+          </g>
+        ))}
+
+        {/* x-axis labels (no grid lines — kept clean) */}
+        {xTicks.map((t) => (
+          <g key={`x-${t}`}>
+            <line
+              x1={xOf(t)}
+              y1={PT + PH}
+              x2={xOf(t)}
+              y2={PT + PH + 4}
+              stroke="currentColor"
+              className="text-ink-tertiary/60"
+              strokeWidth={1}
+            />
+            <text
+              x={xOf(t)}
+              y={PT + PH + 16}
+              textAnchor="middle"
+              className="fill-ink-tertiary"
+              style={{ font: "10px ui-monospace, monospace" }}
+            >
+              {t}%
+            </text>
+          </g>
+        ))}
+
+        {/* axis labels */}
+        <text
+          x={PL - 30}
+          y={PT - 6}
+          className="fill-ink-secondary"
+          style={{ font: "10px ui-monospace, monospace" }}
+        >
+          APR
+        </text>
+        <text
+          x={W - PR}
+          y={H - 8}
+          textAnchor="end"
+          className="fill-ink-secondary"
+          style={{ font: "10px ui-monospace, monospace" }}
+        >
+          utilization
+        </text>
+
+        {/* baseline */}
+        <line
+          x1={PL}
+          y1={PT + PH}
+          x2={W - PR}
+          y2={PT + PH}
+          stroke="currentColor"
+          className="text-ink-tertiary"
+          strokeWidth={1}
+        />
+        <line
+          x1={PL}
+          y1={PT}
+          x2={PL}
+          y2={PT + PH}
+          stroke="currentColor"
+          className="text-ink-tertiary"
+          strokeWidth={1}
+        />
+
+        {/* curve area fill (subtle) */}
+        <polygon
+          points={`${PL},${PT + PH} ${polylinePoints} ${W - PR},${PT + PH}`}
+          className="fill-phos/10"
+        />
+
+        {/* curve */}
+        <polyline
+          points={polylinePoints}
+          fill="none"
+          className="stroke-phos"
+          strokeWidth={2}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+
+        {/* anchor dots */}
+        {ANCHORS.map(([u, a]) => (
+          <circle
+            key={`dot-${u}`}
+            cx={xOf(u)}
+            cy={yOf(a)}
+            r={2.5}
+            className="fill-phos"
+          />
+        ))}
+
+        {/* highlight anchor (98 → 10) */}
+        {highlight && (
+          <g>
+            <circle
+              cx={xOf(highlight[0])}
+              cy={yOf(highlight[1])}
+              r={5}
+              className="fill-amber"
+              stroke="currentColor"
+              strokeWidth={1}
+            />
+            <line
+              x1={xOf(highlight[0])}
+              y1={yOf(highlight[1]) - 6}
+              x2={xOf(highlight[0]) - 28}
+              y2={yOf(highlight[1]) - 28}
+              stroke="currentColor"
+              className="text-amber"
+              strokeWidth={1}
+            />
+            <text
+              x={xOf(highlight[0]) - 32}
+              y={yOf(highlight[1]) - 30}
+              textAnchor="end"
+              className="fill-amber"
+              style={{ font: "10px ui-monospace, monospace" }}
+            >
+              {highlight[2]}
+            </text>
+          </g>
+        )}
+
+        {/* asymptote indicator at 100% */}
+        <line
+          x1={xOf(100)}
+          y1={PT}
+          x2={xOf(100)}
+          y2={PT + PH}
+          stroke="currentColor"
+          className="text-amber/40"
+          strokeWidth={1}
+          strokeDasharray="2 3"
+        />
+        <text
+          x={xOf(100) - 4}
+          y={PT + 12}
+          textAnchor="end"
+          className="fill-amber/80"
+          style={{ font: "9px ui-monospace, monospace" }}
+        >
+          asymptote
+        </text>
+      </svg>
+
+      {/* anchor table — small, unobtrusive */}
+      <div className="mt-2 grid grid-cols-3 sm:grid-cols-6 gap-x-3 gap-y-1 font-mono text-[10px] text-ink-tertiary">
+        {ANCHORS.map(([u, a]) => (
+          <div key={`row-${u}`} className="tabular-nums">
+            <span className="text-ink-secondary">{u}%</span>
+            <span className="mx-1">→</span>
+            <span className="text-phos">{a}%</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

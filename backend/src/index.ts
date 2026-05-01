@@ -8,7 +8,9 @@ import { healthRoutes } from "./routes/health.js";
 import { analyzeRoutes } from "./routes/analyze.js";
 import { chatRoutes } from "./routes/chat.js";
 import { alertsRoutes } from "./routes/alerts.js";
+import { liquidateRoutes } from "./routes/liquidate.js";
 import { startEventWatcher } from "./services/eventWatcher.js";
+import { startMixerKeeper } from "./services/mixerKeeper.js";
 
 async function bootstrap() {
   const app = Fastify({ logger: loggerConfig });
@@ -27,12 +29,15 @@ async function bootstrap() {
   await app.register(analyzeRoutes);
   await app.register(chatRoutes);
   await app.register(alertsRoutes);
+  await app.register(liquidateRoutes);
 
   const stopWatcher = startEventWatcher(app.log);
+  const stopMixer = startMixerKeeper(app.log);
 
   const shutdown = async (signal: string) => {
     app.log.info({ signal }, "shutting down");
     stopWatcher();
+    stopMixer();
     await app.close();
     process.exit(0);
   };

@@ -6,8 +6,7 @@ const MARK_PX: Record<LogoSize, number> = { sm: 20, md: 32, lg: 56 };
 const TYPE_PX: Record<LogoSize, number> = { sm: 13, md: 18, lg: 32 };
 
 /**
- * Discretion mark — a filled circle with a negative crescent in the upper-left.
- * This mark is positioned asymmetrically by design (see brief, decorative #2).
+ * Discretion mark — uses the brand asset under `/public/logo-discretion.svg`.
  */
 export function DiscretionMark({
   size = 24,
@@ -17,16 +16,15 @@ export function DiscretionMark({
   className?: string;
 }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
+    /* eslint-disable-next-line @next/next/no-img-element */
+    <img
+      src="/logo-discretion.svg"
+      alt="Discretion"
       width={size}
       height={size}
-      className={cn("text-accent-gold", className)}
-      aria-hidden
-    >
-      <circle cx="12" cy="12" r="10" fill="currentColor" />
-      <circle cx="8.6" cy="8.6" r="4.2" fill="#0F0F0F" />
-    </svg>
+      style={{ width: size, height: size }}
+      className={cn("object-contain", className)}
+    />
   );
 }
 

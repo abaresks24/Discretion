@@ -27,6 +27,21 @@ const envSchema = z.object({
   CHAINGPT_MODEL: z.string().default("general_assistant"),
 
   ALERT_MIN_INTERVAL_MS: z.coerce.number().int().nonnegative().default(15_000),
+
+  // Mixer keeper — optional. If MIXER_OPERATOR_PRIVATE_KEY + WRAP_QUEUE_ADDRESS
+  // are present, the relayer polls pendingIds() and submits processBatch() as
+  // the on-chain operator.
+  WRAP_QUEUE_ADDRESS: addressSchema.optional(),
+  WRAP_QUEUE_WETH_ADDRESS: addressSchema.optional(),
+  WRAP_QUEUE_USDC_ADDRESS: addressSchema.optional(),
+  UNWRAP_QUEUE_ADDRESS: addressSchema.optional(),
+  MIXER_OPERATOR_PRIVATE_KEY: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{64}$/, "Invalid private key")
+    .optional(),
+  MIXER_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
+  MIXER_MIN_BATCH: z.coerce.number().int().positive().default(1),
+  MIXER_BATCH_LIMIT: z.coerce.number().int().positive().max(100).default(20),
 });
 
 export type Config = z.infer<typeof envSchema>;

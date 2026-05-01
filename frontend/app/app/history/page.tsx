@@ -1,16 +1,9 @@
 "use client";
 
-import { useState } from "react";
 import { WalletGate } from "@/components/WalletGate";
 import { ScreenShell } from "@/components/app/ScreenShell";
 import { AsciiCard } from "@/components/primitives/AsciiCard";
 import { ActivityLog } from "@/components/app/ActivityLog";
-import { cn } from "@/lib/cn";
-
-const FILTERS = [
-  { label: "ALL", mine: false },
-  { label: "MINE", mine: true },
-];
 
 export default function HistoryPage() {
   return (
@@ -21,35 +14,19 @@ export default function HistoryPage() {
 }
 
 function HistoryScreen() {
-  const [mine, setMine] = useState(false);
-
   return (
     <ScreenShell
-      tag="/history"
-      title="vault activity."
-      subtitle="public events · amounts sealed"
-      trailing={
-        <div className="flex gap-2 font-mono text-[10px] uppercase tracking-widest">
-          {FILTERS.map((f) => (
-            <button
-              key={f.label}
-              type="button"
-              onClick={() => setMine(f.mine)}
-              className={cn(
-                "px-3 py-1 border transition-colors",
-                mine === f.mine
-                  ? "border-phos text-phos phos-glow-soft"
-                  : "border-ink-tertiary text-ink-secondary hover:text-phos",
-              )}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-      }
+      tag="/journal"
+      title="your journal."
+      subtitle="your own actions only · amounts always sealed"
     >
-      <AsciiCard title={mine ? "filter: my events" : "filter: all events"}>
-        <ActivityLog mineOnly={mine} limit={80} />
+      <AsciiCard title="your events">
+        <ActivityLog mineOnly limit={80} />
+        <div className="mt-3 font-mono text-[10px] text-ink-tertiary leading-snug border-t border-dashed border-ink-tertiary/60 pt-3">
+          # only your address is shown here. other users' on-chain actions
+          are public events readable from any block explorer, but we don't
+          surface them here — privacy by default.
+        </div>
       </AsciiCard>
     </ScreenShell>
   );

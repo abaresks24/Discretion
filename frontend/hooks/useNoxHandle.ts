@@ -5,11 +5,10 @@ import { useWalletClient } from "wagmi";
 import type { Address } from "viem";
 
 /**
- * Wraps `@iexec-nox/handle` around the wagmi wallet client. Returns a stable
- * client while the wallet is connected — rebuilds it if the wallet changes.
- *
- * The SDK is ESM-only and instantiates lazily (it pulls in graphql + subgraph
- * fetchers), so we import it dynamically to keep the initial bundle small.
+ * Wraps `@iexec-nox/handle` around the wagmi wallet client. Stable singleton
+ * keyed by `(chainId, account)` — every component that calls this hook gets
+ * the same NoxHandleClient for a given identity, so we never spend bandwidth
+ * (or worse: race) on parallel re-initialisations.
  */
 
 export type NoxEncryptedInput = {
@@ -26,67 +25,109 @@ export type NoxHandleClient = {
   decrypt: (handle: `0x${string}`) => Promise<bigint>;
 };
 
+// Module-level cache: identity -> in-flight or settled client.
+const cache = new Map<string, Promise<NoxHandleClient>>();
+const subscribers = new Map<string, Set<() => void>>();
+
+function notify(key: string) {
+  subscribers.get(key)?.forEach((fn) => fn());
+}
+
+async function buildClient(
+  walletClient: unknown,
+  key: string,
+): Promise<NoxHandleClient> {
+  const { createViemHandleClient } = await import("@iexec-nox/handle");
+  const raw = await createViemHandleClient(walletClient as never);
+  console.log("[useNoxHandle] client ready ✓", key);
+  return {
+    async encryptInput(value, solidityType, applicationContract) {
+      const { handle, handleProof } = await raw.encryptInput(
+        value,
+        solidityType,
+        applicationContract,
+      );
+      return {
+        handle: handle as `0x${string}`,
+        handleProof: handleProof as `0x${string}`,
+      };
+    },
+    async decrypt(handle) {
+      const { value } = await raw.decrypt(handle);
+      return typeof value === "bigint" ? value : BigInt(value as string);
+    },
+  };
+}
+
+function getOrBuild(walletClient: unknown, key: string): Promise<NoxHandleClient> {
+  let p = cache.get(key);
+  if (!p) {
+    console.log("[useNoxHandle] initializing for", key);
+    p = buildClient(walletClient, key).catch((err) => {
+      console.error("[useNoxHandle] init failed", err);
+      cache.delete(key); // allow retry
+      notify(key);
+      throw err;
+    });
+    cache.set(key, p);
+    p.then(() => notify(key));
+  }
+  return p;
+}
+
 export function useNoxHandle(): {
   client: NoxHandleClient | null;
   isLoading: boolean;
   error: Error | null;
 } {
   const { data: walletClient } = useWalletClient();
+  const account = walletClient?.account?.address;
+  const chainId = walletClient?.chain?.id;
+  const key = account && chainId ? `${chainId}:${account}` : null;
+
   const [client, setClient] = useState<NoxHandleClient | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
-    if (!walletClient) {
-      console.log("[useNoxHandle] waiting for walletClient…");
+    if (!walletClient || !key) {
       setClient(null);
       return;
     }
     let cancelled = false;
     setIsLoading(true);
     setError(null);
-    console.log("[useNoxHandle] init start", {
-      chainId: walletClient.chain?.id,
-      account: walletClient.account?.address,
-    });
-    (async () => {
-      try {
-        const { createViemHandleClient } = await import("@iexec-nox/handle");
-        console.log("[useNoxHandle] module imported, calling createViemHandleClient…");
-        const raw = await createViemHandleClient(walletClient as never);
-        console.log("[useNoxHandle] client created ✓");
-        if (cancelled) return;
 
-        const wrapped: NoxHandleClient = {
-          async encryptInput(value, solidityType, applicationContract) {
-            const { handle, handleProof } = await raw.encryptInput(
-              value,
-              solidityType,
-              applicationContract,
-            );
-            return {
-              handle: handle as `0x${string}`,
-              handleProof: handleProof as `0x${string}`,
-            };
-          },
-          async decrypt(handle) {
-            const { value } = await raw.decrypt(handle);
-            // For uint256 handles the SDK returns a bigint; string for other types.
-            return typeof value === "bigint" ? value : BigInt(value as string);
-          },
-        };
-        setClient(wrapped);
-      } catch (err) {
-        console.error("[useNoxHandle] init failed", err);
-        if (!cancelled) setError(err as Error);
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    })();
+    const apply = (c: NoxHandleClient) => {
+      if (cancelled) return;
+      setClient(c);
+      setIsLoading(false);
+    };
+    const fail = (err: Error) => {
+      if (cancelled) return;
+      setError(err);
+      setIsLoading(false);
+    };
+
+    getOrBuild(walletClient, key).then(apply).catch(fail);
+
+    // Subscribe so a sibling that finished init wakes us too.
+    const wake = () => {
+      const cached = cache.get(key);
+      if (cached) cached.then(apply).catch(fail);
+    };
+    let set = subscribers.get(key);
+    if (!set) {
+      set = new Set();
+      subscribers.set(key, set);
+    }
+    set.add(wake);
+
     return () => {
       cancelled = true;
+      subscribers.get(key)?.delete(wake);
     };
-  }, [walletClient]);
+  }, [key, walletClient]);
 
   return { client, isLoading, error };
 }

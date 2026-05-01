@@ -26,13 +26,13 @@
 
   /* Custom phosphor selection */
   ::selection {
-    background: #00ff9f;
+    background: #00cc00;
     color: #080a0c;
   }
 
   /* Visible focus ring — phosphor green */
   :focus-visible {
-    outline: 1px solid #00ff9f;
+    outline: 1px solid #00cc00;
     outline-offset: 2px;
   }
 }
@@ -47,8 +47,8 @@
   pointer-events: none;
   background: repeating-linear-gradient(
     0deg,
-    rgba(0, 255, 159, 0.03) 0px,
-    rgba(0, 255, 159, 0.03) 1px,
+    rgba(0, 204, 0, 0.03) 0px,
+    rgba(0, 204, 0, 0.03) 1px,
     transparent 1px,
     transparent 3px
   );
@@ -62,8 +62,8 @@
   pointer-events: none;
   background: repeating-linear-gradient(
     0deg,
-    rgba(0, 255, 159, 0.015) 0px,
-    rgba(0, 255, 159, 0.015) 1px,
+    rgba(0, 204, 0, 0.015) 0px,
+    rgba(0, 204, 0, 0.015) 1px,
     transparent 1px,
     transparent 3px
   );
@@ -86,7 +86,7 @@
   z-index: 5;
   background: radial-gradient(
     400px circle at var(--mouse-x) var(--mouse-y),
-    rgba(0, 255, 159, 0.07),
+    rgba(0, 204, 0, 0.07),
     transparent 70%
   );
   transition: background 120ms ease-out;
@@ -99,11 +99,11 @@
 .phos-glow {
   text-shadow:
     0 0 1px currentColor,
-    0 0 6px rgba(0, 255, 159, 0.55);
+    0 0 6px rgba(0, 204, 0, 0.55);
 }
 
 .phos-glow-soft {
-  text-shadow: 0 0 6px rgba(0, 255, 159, 0.35);
+  text-shadow: 0 0 6px rgba(0, 204, 0, 0.35);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -125,7 +125,7 @@
   inset: 0;
   background: radial-gradient(
     circle at calc(var(--rel-x, 0.5) * 100%) calc(var(--rel-y, 0.5) * 100%),
-    rgba(0, 255, 159, 0.12),
+    rgba(0, 204, 0, 0.12),
     transparent 40%
   );
   pointer-events: none;
@@ -146,7 +146,7 @@
   text-shadow:
     -1px 0 #00ffff,
     1px 0 #ff00ff,
-    0 0 6px rgba(0, 255, 159, 0.55);
+    0 0 6px rgba(0, 204, 0, 0.55);
 }
 
 /* ------------------------------------------------------------------------ */

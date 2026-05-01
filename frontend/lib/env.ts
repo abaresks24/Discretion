@@ -20,6 +20,8 @@ export const env = {
   VAULT_ADDRESS: addr(process.env.NEXT_PUBLIC_VAULT_ADDRESS),
   ORACLE_ADDRESS: addr(process.env.NEXT_PUBLIC_ORACLE_ADDRESS),
   WRAP_QUEUE_ADDRESS: addr(process.env.NEXT_PUBLIC_WRAP_QUEUE_ADDRESS),
+  WRAP_QUEUE_WETH_ADDRESS: addr(process.env.NEXT_PUBLIC_WRAP_QUEUE_WETH_ADDRESS),
+  WRAP_QUEUE_USDC_ADDRESS: addr(process.env.NEXT_PUBLIC_WRAP_QUEUE_USDC_ADDRESS),
   UNWRAP_QUEUE_ADDRESS: addr(process.env.NEXT_PUBLIC_UNWRAP_QUEUE_ADDRESS),
 
   // Multi-asset registry — plaintext ERC-20 + confidential ERC-7984 wrapper

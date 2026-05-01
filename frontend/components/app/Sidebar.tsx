@@ -35,7 +35,7 @@ const SECTIONS: NavSection[] = [
       { label: "Learn", href: "/app/learn", hint: "primer · 6 modules" },
       { label: "Mixer", href: "/app/mix", hint: "entry + exit · tdx" },
       { label: "Liquidations", href: "/app/liquidations", hint: "public market · live" },
-      { label: "Event log", href: "/app/history", hint: "on-chain scan" },
+      { label: "Journal", href: "/app/history", hint: "your actions only" },
     ],
   },
 ];
@@ -65,12 +65,9 @@ export function Sidebar() {
 
   return (
     <aside className="w-64 shrink-0 border-r border-ink-tertiary bg-bg flex flex-col">
-      <div className="h-14 px-4 border-b border-ink-tertiary flex items-center gap-2">
-        <Link href="/" className="cursor-target flex items-center gap-2">
+      <div className="h-14 px-4 border-b border-ink-tertiary flex items-center">
+        <Link href="/" className="cursor-target flex items-center">
           <Logo size={22} />
-          <span className="font-mono text-sm tracking-[0.2em] uppercase text-ink-primary">
-            Discretion
-          </span>
         </Link>
       </div>
 

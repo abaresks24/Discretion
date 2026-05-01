@@ -139,8 +139,6 @@ function ManageScreen() {
                   title={`add ${collat.symbol.toLowerCase()} collateral`}
                   verbs={["Deposit"]}
                   unit={collat.symbol.toLowerCase()}
-                  allowMixer
-                  mixerAllowedForAsset={collat.hasMixer}
                   assetSymbol={collat.symbol}
                   extraSummary={(n) => {
                     const newAmount = currentCollatAmount + n;

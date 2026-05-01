@@ -1,7 +1,7 @@
 "use client";
 
 import { useAccount, useConnect, useDisconnect, useSignMessage } from "wagmi";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useViewKey, VIEW_KEY_MESSAGE } from "@/context/ViewKeyContext";
 import { useTypewriter } from "@/hooks/useTypewriter";
 import { TerminalButton } from "./primitives/TerminalButton";
@@ -19,8 +19,21 @@ export function WalletGate({ children }: { children: ReactNode }) {
   const { viewKey, setViewKey } = useViewKey();
   const [error, setError] = useState<string | null>(null);
 
+  // Only clear the view key on a real disconnect or account switch — wagmi
+  // briefly reports `isConnected: false` / `address: undefined` during route
+  // changes, which would otherwise force the user to re-sign every page nav.
+  const lastAddrRef = useRef<string | null | undefined>(address);
   useEffect(() => {
-    if (!isConnected) setViewKey(null);
+    const prev = lastAddrRef.current;
+    // genuine disconnect
+    if (prev && !isConnected) {
+      setViewKey(null);
+    }
+    // account switch (both addresses defined and different)
+    else if (prev && address && prev.toLowerCase() !== address.toLowerCase()) {
+      setViewKey(null);
+    }
+    lastAddrRef.current = address ?? prev;
   }, [isConnected, address, setViewKey]);
 
   if (!isConnected) {

@@ -22,6 +22,7 @@ export type AssetMeta = {
   decimals: number;      // ERC-20 decimals
   ltvBps: number;        // max LTV as collateral, in bps (UI hint, vault is authoritative)
   hasMixer: boolean;     // does the WrapQueue accept this asset?
+  wrapQueue?: Address;   // per-asset WrapQueue address when hasMixer=true
   role: ("collat" | "debt")[]; // what roles this asset can play
   description: string;   // short blurb shown in selectors
 };
@@ -41,6 +42,7 @@ export const ASSETS: Record<string, AssetMeta> = {
     decimals: 9,
     ltvBps: 7000,
     hasMixer: true,
+    wrapQueue: safeAddr(env.WRAP_QUEUE_ADDRESS as Address),
     role: ["collat"],
     description: "iExec native — governance & utility token",
   },
@@ -51,7 +53,8 @@ export const ASSETS: Record<string, AssetMeta> = {
     cToken: safeAddr(env.C_WETH_TOKEN as Address),
     decimals: 18,
     ltvBps: 7500,
-    hasMixer: false,
+    hasMixer: true,
+    wrapQueue: safeAddr(env.WRAP_QUEUE_WETH_ADDRESS as Address),
     role: ["collat"],
     description: "ETH on Arbitrum Sepolia · most volatile collat",
   },
@@ -62,7 +65,8 @@ export const ASSETS: Record<string, AssetMeta> = {
     cToken: safeAddr(env.C_USDC_TOKEN as Address),
     decimals: 6,
     ltvBps: 9000,
-    hasMixer: false,
+    hasMixer: true,
+    wrapQueue: safeAddr(env.WRAP_QUEUE_USDC_ADDRESS as Address),
     role: ["collat", "debt"],
     description: "Circle stable · also the protocol's debt asset",
   },

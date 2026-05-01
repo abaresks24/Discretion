@@ -36,22 +36,35 @@ export function useDecryptedPosition() {
   const [decryptError, setDecryptError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!nox) return;
+    if (!nox) {
+      console.log("[position] waiting for nox client…");
+      return;
+    }
     let cancelled = false;
+    console.log("[position] decrypting handles", {
+      collat: Object.fromEntries(
+        Object.entries(collateralHandles).map(([k, v]) => [k, v?.slice(0, 18) + "…"]),
+      ),
+      debt: debtHandle?.slice(0, 18) + "…",
+      lender: lenderSharesHandle?.slice(0, 18) + "…",
+    });
     (async () => {
       const safeDecrypt = async (
         h: `0x${string}` | undefined,
         label: string,
       ): Promise<bigint> => {
-        if (!h || /^0x0+$/.test(h)) return 0n;
+        if (!h || /^0x0+$/.test(h)) {
+          console.log(`[position] ${label}: zero handle, skip`);
+          return 0n;
+        }
         try {
-          return await nox.decrypt(h);
+          const v = await nox.decrypt(h);
+          console.log(`[position] ${label}: ${v.toString()} ✓`);
+          return v;
         } catch (err: any) {
-          if (!cancelled) {
-            setDecryptError(
-              `${label}: ${err?.shortMessage ?? err?.message ?? "decrypt failed"}`,
-            );
-          }
+          const msg = err?.shortMessage ?? err?.message ?? "decrypt failed";
+          console.error(`[position] ${label} decrypt FAILED:`, msg, err);
+          if (!cancelled) setDecryptError(`${label}: ${msg}`);
           return 0n;
         }
       };

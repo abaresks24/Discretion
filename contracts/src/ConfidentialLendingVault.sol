@@ -81,13 +81,16 @@ contract ConfidentialLendingVault {
     // the same curve no matter the gas state.
     // -------------------------------------------------------------------------
 
-    uint256 public constant KINK_BPS         = 8000;  // 80%
-    uint256 public constant RATE_AT_KINK_BPS = 800;   // 8% APR
-    uint256 public constant RATE_MAX_BPS     = 10_000;// 100% APR
-    uint256 public constant RESERVE_FACTOR_BPS = 1000;// 10%
+    /// Maximum APR — asymptote, only reached at exact 100% utilization.
+    uint256 public constant RATE_MAX_BPS = 10_000; // 100% APR cap
 
-    uint256 public utilizationBps;
-    uint40  public rateUpdatedAt;
+    /// Plaintext aggregate counters — used to compute live utilization on-chain.
+    /// Individual positions remain confidential (handles); only the aggregate
+    /// totals are public, like every standard lending protocol.
+    /// Caller passes plaintext alongside encrypted; honesty is required (would
+    /// be FHE-verified in production via Nox.eq).
+    uint256 public totalDebt;       // in cUSDC native units (6 decimals)
+    uint256 public totalSupplied;   // in cUSDC native units (6 decimals)
 
     // -------------------------------------------------------------------------
     // Liquidation reveal — populated by the TEE iApp when it detects an
@@ -129,7 +132,6 @@ contract ConfidentialLendingVault {
     event Repaid(address indexed user);
     event LiquiditySupplied(address indexed lender);
     event LiquidityWithdrawn(address indexed lender);
-    event RatesUpdated(uint256 borrowBps, uint256 supplyBps, uint256 utilizationBps);
     event OwnershipTransferred(address indexed from, address indexed to);
 
     /// @notice Emitted when the TEE detects a liquidatable position and
@@ -192,7 +194,6 @@ contract ConfidentialLendingVault {
         debtToken = IERC7984(_debtToken);
         debtAsset = _debtAsset;
         owner = _owner == address(0) ? msg.sender : _owner;
-        rateUpdatedAt = uint40(block.timestamp);
         emit OwnershipTransferred(address(0), owner);
     }
 
@@ -291,24 +292,21 @@ contract ConfidentialLendingVault {
     ///         encrypted collateral balances. See {_checkBorrowLtv}.
     function borrow(
         externalEuint256 encryptedAmount,
-        bytes calldata inputProof
+        bytes calldata inputProof,
+        uint256 plainAmount
     ) external {
         euint256 amount = Nox.fromExternal(encryptedAmount, inputProof);
 
-        // Encrypted FHE check: would the resulting debt exceed the
-        // weighted-LTV cap of the user's per-asset collateral basket?
         ebool ok = _checkBorrowLtv(msg.sender, amount);
-
-        // Cap to 0 if the check fails — preserves privacy (no on-chain
-        // revert leaks "user is over-LTV") and matches the same flow as
-        // confidentialTransferFrom which silently transfers up to balance.
         euint256 actualAmount = Nox.select(ok, amount, Nox.toEuint256(0));
 
         _debt[msg.sender] = Nox.add(_debt[msg.sender], actualAmount);
         _grantAudit(_debt[msg.sender], msg.sender);
-        // ACL the transferred handle for the cToken so it can move it.
         Nox.allowTransient(actualAmount, address(debtToken));
         debtToken.confidentialTransfer(msg.sender, actualAmount);
+        // Bump aggregate. Note: if FHE LTV check fails actualAmount=0 but we
+        // still bump by plainAmount — caveat for hackathon, prod would gate.
+        totalDebt += plainAmount;
         emit Borrowed(msg.sender);
     }
 
@@ -359,7 +357,8 @@ contract ConfidentialLendingVault {
 
     function repay(
         externalEuint256 encryptedAmount,
-        bytes calldata inputProof
+        bytes calldata inputProof,
+        uint256 plainAmount
     ) external {
         euint256 amount = Nox.fromExternal(encryptedAmount, inputProof);
         Nox.allowTransient(amount, address(debtToken));
@@ -370,6 +369,8 @@ contract ConfidentialLendingVault {
         );
         _debt[msg.sender] = Nox.sub(_debt[msg.sender], transferred);
         _grantAudit(_debt[msg.sender], msg.sender);
+        // Saturating subtract — should never underflow with honest plain amount.
+        totalDebt = plainAmount >= totalDebt ? 0 : totalDebt - plainAmount;
         emit Repaid(msg.sender);
     }
 
@@ -379,7 +380,8 @@ contract ConfidentialLendingVault {
 
     function supplyLiquidity(
         externalEuint256 encryptedAmount,
-        bytes calldata inputProof
+        bytes calldata inputProof,
+        uint256 plainAmount
     ) external {
         euint256 amount = Nox.fromExternal(encryptedAmount, inputProof);
         Nox.allowTransient(amount, address(debtToken));
@@ -390,17 +392,20 @@ contract ConfidentialLendingVault {
         );
         _lenderShares[msg.sender] = Nox.add(_lenderShares[msg.sender], transferred);
         _grantAudit(_lenderShares[msg.sender], msg.sender);
+        totalSupplied += plainAmount;
         emit LiquiditySupplied(msg.sender);
     }
 
     function withdrawLiquidity(
         externalEuint256 encryptedAmount,
-        bytes calldata inputProof
+        bytes calldata inputProof,
+        uint256 plainAmount
     ) external {
         euint256 amount = Nox.fromExternal(encryptedAmount, inputProof);
         _lenderShares[msg.sender] = Nox.sub(_lenderShares[msg.sender], amount);
         _grantAudit(_lenderShares[msg.sender], msg.sender);
         debtToken.confidentialTransfer(msg.sender, amount);
+        totalSupplied = plainAmount >= totalSupplied ? 0 : totalSupplied - plainAmount;
         emit LiquidityWithdrawn(msg.sender);
     }
 
@@ -408,56 +413,56 @@ contract ConfidentialLendingVault {
     // Admin: rate engine poke
     // -------------------------------------------------------------------------
 
-    /// @notice Push the latest aggregate utilization (in bps). Owner-only for
-    ///         now; will be rotated to the TDX iApp once it can decrypt
-    ///         vault-wide aggregates. Rates re-derive automatically from the
-    ///         utilization via the kinked curve below.
-    function setUtilization(uint256 utilBps) external onlyOwner {
-        if (utilBps > BPS_DENOMINATOR) revert RateOutOfRange();
-        utilizationBps = utilBps;
-        rateUpdatedAt = uint40(block.timestamp);
-        emit RatesUpdated(borrowRateBps(), supplyRateBps(), utilBps);
-    }
-
-    /// @notice Backwards-compatible alias — only `utilBps` is honoured; the
-    ///         explicit borrow/supply args are ignored because rates are now
-    ///         a pure function of utilization.
-    function setRates(
-        uint256 /*borrowBps*/,
-        uint256 /*supplyBps*/,
-        uint256 utilBps
-    ) external onlyOwner {
-        if (utilBps > BPS_DENOMINATOR) revert RateOutOfRange();
-        utilizationBps = utilBps;
-        rateUpdatedAt = uint40(block.timestamp);
-        emit RatesUpdated(borrowRateBps(), supplyRateBps(), utilBps);
+    /// @notice Live utilization in bps, computed from plaintext aggregates.
+    ///         Returns 0 when nobody has supplied yet.
+    function utilizationBps() public view returns (uint256) {
+        if (totalSupplied == 0) return 0;
+        uint256 u = (totalDebt * BPS_DENOMINATOR) / totalSupplied;
+        return u > BPS_DENOMINATOR ? BPS_DENOMINATOR : u;
     }
 
     /// @notice Borrow APR in bps, derived from current utilization via a
-    ///         two-segment linear curve.
-    ///           util ≤ KINK: rate scales 0 → RATE_AT_KINK
-    ///           util > KINK: rate scales RATE_AT_KINK → RATE_MAX
+    ///         piecewise-linear approximation of a concave log-shaped curve.
+    ///
+    ///         Shape:
+    ///           - steep slope near 0% (attracts suppliers early)
+    ///           - mild plateau through 50–95% (predictable rates)
+    ///           - sharp tail near 100% (deters reserve exhaustion)
+    ///         Asymptote: 100% APR, only reached at exactly 100% util.
+    ///
+    ///         Anchor points (util_bps → rate_bps):
+    ///           0     → 0       (0% → 0%)
+    ///           1000  → 100     (10% → 1%)
+    ///           5000  → 400     (50% → 4%)
+    ///           8000  → 700     (80% → 7%)
+    ///           9500  → 900     (95% → 9%)
+    ///           9800  → 1000    (98% → 10%)
+    ///           9900  → 1500    (99% → 15%)
+    ///           9950  → 2500    (99.5% → 25%)
+    ///           9990  → 5000    (99.9% → 50%)
+    ///           9999  → 8000    (99.99% → 80%)
+    ///           10000 → 10000   (100% → 100%)
     function borrowRateBps() public view returns (uint256) {
-        uint256 u = utilizationBps;
+        uint256 u = utilizationBps();
         if (u == 0) return 0;
-        if (u <= KINK_BPS) {
-            return (u * RATE_AT_KINK_BPS) / KINK_BPS;
-        }
-        uint256 over = u - KINK_BPS;
-        uint256 span = BPS_DENOMINATOR - KINK_BPS;
-        return RATE_AT_KINK_BPS + (over * (RATE_MAX_BPS - RATE_AT_KINK_BPS)) / span;
+        if (u >= BPS_DENOMINATOR) return RATE_MAX_BPS;
+
+        if (u <= 1000)  return (u * 100) / 1000;
+        if (u <= 5000)  return 100  + ((u - 1000) * 300)  / 4000;
+        if (u <= 8000)  return 400  + ((u - 5000) * 300)  / 3000;
+        if (u <= 9500)  return 700  + ((u - 8000) * 200)  / 1500;
+        if (u <= 9800)  return 900  + ((u - 9500) * 100)  / 300;
+        if (u <= 9900)  return 1000 + ((u - 9800) * 500)  / 100;
+        if (u <= 9950)  return 1500 + ((u - 9900) * 1000) / 50;
+        if (u <= 9990)  return 2500 + ((u - 9950) * 2500) / 40;
+        if (u <= 9999)  return 5000 + ((u - 9990) * 3000) / 9;
+        return 8000 + ((u - 9999) * 2000);
     }
 
-    /// @notice Supply APR in bps. Lenders earn what borrowers pay, scaled by
-    ///         utilization (you only earn on the fraction of supply that's
-    ///         actually borrowed) minus a reserve factor that the protocol
-    ///         keeps for safety.
+    /// @notice Supply APR in bps. No protocol margin: lenders receive the same
+    ///         curve as borrowers pay.
     function supplyRateBps() public view returns (uint256) {
-        uint256 br = borrowRateBps();
-        uint256 u = utilizationBps;
-        // borrowAPR × util × (1 − reserveFactor) — all in bps, divide twice.
-        return (br * u * (BPS_DENOMINATOR - RESERVE_FACTOR_BPS))
-            / (BPS_DENOMINATOR * BPS_DENOMINATOR);
+        return borrowRateBps();
     }
 
     function transferOwnership(address newOwner) external onlyOwner {
@@ -622,6 +627,8 @@ contract ConfidentialLendingVault {
     }
 
     /// @dev Grants persistent ACL on a freshly-updated handle to:
+    ///      - the vault itself, so subsequent txs (e.g. _checkBorrowLtv) can
+    ///        keep operating on the stored handle past the creating tx
     ///      - the affected user, so they can read their own state between txs
     ///      - the owner, regulatory audit backdoor (CLAUDE.md §6)
     ///      - the liquidationOperator (TDX iApp), so it can decrypt handles
@@ -630,6 +637,7 @@ contract ConfidentialLendingVault {
         INoxCompute c = INoxCompute(Nox.noxComputeContract());
         bytes32 raw = euint256.unwrap(handle);
         if (raw != bytes32(0)) {
+            c.allow(raw, address(this));
             c.allow(raw, user);
             c.allow(raw, owner);
             address liqOp = liquidationOperator;

@@ -113,6 +113,20 @@ export const vaultAbi = [
   },
   {
     type: "function",
+    name: "totalDebt",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "totalSupplied",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
     name: "rateUpdatedAt",
     stateMutability: "view",
     inputs: [],
@@ -170,6 +184,7 @@ export const vaultAbi = [
     inputs: [
       { name: "encryptedAmount", type: "bytes32" },
       { name: "inputProof", type: "bytes" },
+      { name: "plainAmount", type: "uint256" },
     ],
     outputs: [],
   },
@@ -180,6 +195,7 @@ export const vaultAbi = [
     inputs: [
       { name: "encryptedAmount", type: "bytes32" },
       { name: "inputProof", type: "bytes" },
+      { name: "plainAmount", type: "uint256" },
     ],
     outputs: [],
   },
@@ -190,6 +206,7 @@ export const vaultAbi = [
     inputs: [
       { name: "encryptedAmount", type: "bytes32" },
       { name: "inputProof", type: "bytes" },
+      { name: "plainAmount", type: "uint256" },
     ],
     outputs: [],
   },
@@ -200,6 +217,7 @@ export const vaultAbi = [
     inputs: [
       { name: "encryptedAmount", type: "bytes32" },
       { name: "inputProof", type: "bytes" },
+      { name: "plainAmount", type: "uint256" },
     ],
     outputs: [],
   },
